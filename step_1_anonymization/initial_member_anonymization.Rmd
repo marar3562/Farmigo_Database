@@ -1,0 +1,253 @@
+---
+title: "Anonymize Member Data - First Time"
+output: html_notebook
+---
+
+## Libraries
+
+```{r}
+library(tidyverse)
+library(lubridate)
+library(googlesheets4)
+```
+
+## Initial Member File
+
+### Pull Data set
+
+```{r}
+m_location = 'C:/Users/Fair Shares/Downloads/temp_files/contacts/2024_05_24__Member Contact Info-All.csv'
+
+d_location = 'C:/Users/Fair Shares/Downloads/temp_files/member_deliveries/2024_05_24__Past Deliveries (Quantity)-05_29_2023-to-05_24_2024.csv'
+
+members_raw = read_csv(m_location) |> 
+  mutate(file_date = ymd('2024-05-24'))
+
+deliveries_raw = read_csv(d_location, id = "path") |> 
+  mutate(file_date = ymd('2024-05-24'))
+
+deliveries_path = deliveries_raw |> 
+  select(file = path) |> 
+  distinct() |>
+  mutate(first_dash = str_locate(file,'-')[1]
+         , start_date = mdy(str_sub(file, first_dash+1, first_dash+11))
+         , to_find = str_locate(file,'to-')[1]
+         , end_date = mdy(str_sub(file, to_find+3, to_find+12))
+         , dash_start_del = str_locate(file,'__')[1]
+         , del_date = ymd(str_sub(file, dash_start_del-10, dash_start_del-1))
+  )
+
+file_del_start = deliveries_path |> select(start_date) |> pull()
+  
+file_del_end = deliveries_path |> select(end_date) |> pull()
+
+contact_date = deliveries_path |> select(del_date) |> pull()
+```
+
+### Anonymize Data set
+
+I had to bring in both the original member file and delivery file to build this data set. There were members in the delivery file that were not in the member contact file. Thus the need to combine both to obtain an accurate member id list. 
+
+This code snippet won't run again as the new anonymized ids have been created.
+
+```{r eval=FALSE, include=FALSE}
+members_init = members_raw |> 
+  rename_with(tolower) |> 
+  rename_with(make.names) |> 
+  select(route, pickup_site = pickup.site, file_date, first_name = first.name, last_name = last.name, email) |> 
+  mutate(concat_member = paste0(first_name, "||", last_name, "||", email))
+
+deliveries_init = deliveries_raw |> 
+  rename_with(tolower) |> 
+  rename(delivery_date = 'delivery date', first_name = 'first name', last_name = 'last name', zip_code = 'zip code') |> 
+  mutate(concat_member = paste0(first_name, "||", last_name, "||", email),
+         route = NA,
+         pickup_site = NA) |> 
+  filter(concat_member != 'NA||NA||NA') |> 
+  select(route, pickup_site, file_date, first_name, last_name, email, concat_member) |> 
+  distinct() |> 
+  left_join(members_init |>
+              select(concat_member) |> 
+              mutate(present = 1)
+              , by = c('concat_member')) |> 
+  filter(is.na(present)) |> 
+  select(-present)
+
+all_members = members_init |> 
+  rbind(deliveries_init)
+
+# checking to make sure no duplicate member information
+stopifnot((all_members |> 
+             select(first_name, last_name, email) |> 
+             group_by_all() |> 
+             summarise(max = n()) |> 
+             filter(max > 1) |> 
+             pull()) == 0)
+
+random_sample = nrow(all_members) + 1000
+
+reftable <- data.frame("concat_member"= all_members$concat_member, "member_id"=sample(1:random_sample, nrow(all_members), replace=FALSE), stringsAsFactors=FALSE)
+
+stopifnot((reftable |> 
+             select(member_id) |> 
+             group_by_all() |> 
+             summarise(max = n()) |> 
+             filter(max > 1) |> 
+             pull()) == 0)
+
+members_anon = all_members |> 
+  left_join(reftable, by = c('concat_member')) |> 
+  select(member_id, first_name, last_name, email, concat_member)
+
+```
+
+### Member groups over time
+
+```{r eval=FALSE, include=FALSE}
+# member_groups = members_init |> 
+#   left_join(reftable, by = c('concat_member')) |> 
+#   select(member_id, route, pickup_site, start_date = file_date) |> 
+#   mutate(end_date = NA)
+```
+
+
+## Google Drive Data
+
+### Connection
+
+```{r include=FALSE}
+gs4_auth(email = "") # , cache = TRUE
+# gs4_auth(cache = ".secrets", email = TRUE, use_oob = TRUE)
+
+```
+
+
+### Upload Data
+
+This logic should only be udpated once and never run again. Otherwise the ids won't match to the correct customer week over week as we update the data set. 
+
+```{r eval=FALSE, include=FALSE}
+sheet_id = "1dUZJEIcrYs_ebfbmu1Pm9Jz07Y6yHVFmn5tenrsTVWY"
+
+sheet_write(members_anon, sheet_id, sheet = "members")
+
+# sheet_write(member_groups, sheet_id, sheet = "groups")
+
+remove(sheet_id)
+# gs4_deauth()
+```
+
+## Anonymize first week's files
+
+Since the first week is a unique scenario, I am  adding the anonymization logic here. Then I can copy this code into the RMD file that will be run each week.
+
+### Data sets
+
+```{r}
+sheet_id = "1dUZJEIcrYs_ebfbmu1Pm9Jz07Y6yHVFmn5tenrsTVWY"
+
+member_anon_init = range_read(sheet_id, sheet = "members", col_types = 'icccc')
+
+# member_group_anon_init = range_read(sheet_id, sheet = "groups", col_types = 'iccDD')
+
+remove(sheet_id)
+```
+
+
+### Member Information File
+
+```{r}
+members_home_del = members_raw |> 
+  rename_with(tolower) |> 
+  rename_with(make.names) |> # NEED TO BUILD IN CLEANING LOGIC FOR HOME DELIVERY MEMBERS
+  mutate(pickup.site = trimws(pickup.site),
+         last.name = trimws(last.name),
+         site_length = str_length(pickup.site),
+         name_length = str_length(last.name),
+         home_delivery = str_detect(pickup.site, "Home Delivery -"),
+         pickup_detail_v1 = ifelse(home_delivery == TRUE, str_sub(pickup.site, site_length - 3, site_length), NA),
+         pickup_detail_v2 = ifelse(home_delivery == TRUE, str_sub(last.name, name_length - 3, name_length), NA)
+         ) 
+
+members_home_del |> filter(home_delivery == TRUE) |> select(pickup_detail_v1) |> distinct()
+
+#check to make sure the member last name home delivery short name matches to the pick up short description
+stopifnot(members_home_del |> 
+  mutate(check = pickup_detail_v1 == pickup_detail_v2) |> 
+  filter(check == FALSE | 
+           (is.na(pickup_detail_v1) & !is.na(pickup_detail_v1)) | 
+           (!is.na(pickup_detail_v1) & is.na(pickup_detail_v1))
+         ) |> 
+  summarise(n = n()) |> 
+  pull() == 0)
+
+members_init = members_home_del |> 
+  mutate(last.name = trimws(ifelse(!is.na(pickup_detail_v1), str_replace(last.name, pickup_detail_v1, ''), last.name)),
+         pickup.site = ifelse(home_delivery == TRUE, paste0('Home Delivery - ',pickup_detail_v1), pickup.site)
+         ) |> 
+  select(-site_length, -name_length, -pickup_detail_v1, -pickup_detail_v2) |> 
+  mutate(concat_member = paste0(first.name, "||", last.name, "||", email)) |> 
+  select(route, pickup_site = pickup.site, file_date, concat_member) 
+
+members_anon = members_init |> 
+  left_join(member_anon_init |>
+              select(member_id, concat_member)
+              , by = c('concat_member')) |> 
+  select(-concat_member)
+```
+
+
+### Delivery File
+
+```{r}
+deliveries_init = deliveries_raw |> 
+  rename_with(tolower) |> 
+  rename(delivery_date = 'delivery date', first_name = 'first name', last_name = 'last name', zip_code = 'zip code') |> 
+  mutate(concat_member = paste0(first_name, "||", last_name, "||", email)) |>
+  relocate(concat_member) |> 
+  filter(concat_member != 'NA||NA||NA') |> 
+  select(-address, -city, -zip_code, -state) # -first_name, -last_name, -email, 
+
+deliveries_missing_anon = deliveries_init |> 
+  left_join(member_anon_init |>
+              select(member_id, concat_member)
+              , by = c('concat_member')) |> 
+  relocate(member_id, file_date) 
+
+# check to make sure all members have anonymized id
+deliveries_anon_check = deliveries_missing_anon |> 
+  filter(is.na(member_id)) |> 
+  select(first_name, last_name, email, concat_member) |> 
+  distinct()
+
+stopifnot(deliveries_anon_check |> 
+            summarise(n = n()) |> 
+            pull() == 0
+)
+
+deliveries_anon = deliveries_missing_anon |> 
+  select(-concat_member, -first_name, -last_name, -email)
+
+```
+
+
+### Create CSV Files
+
+I NEED TO PULL OUT THE DELIVERY FILE START AND END DATES SO THAT I HAVE THEM IN THE NEW FILE NAME
+
+```{r}
+repo_location = 'C:/Users/Fair Shares/Documents/_ds_fairshares/FS_P012_Member_Purchase_History/Data/Raw/'
+## repo_location = 'C:/Users/Fair Shares/Documents/_ds_fairshares/FS_P012_Member_Purchase_History/Data/Raw/'
+
+write.csv(members_anon
+          , paste0(repo_location, 'contacts/', contact_date, '__member_contact_info_all.csv')
+          , row.names = FALSE
+          )
+
+write.csv(deliveries_anon
+          , paste0(repo_location, 'member_deliveries/', contact_date, '__past_deliveries_',file_del_start,'_to_',file_del_end,'.csv')
+          , row.names = FALSE
+          )
+
+```
+

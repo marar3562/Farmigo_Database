@@ -1,0 +1,384 @@
+---
+title: "Anonymize csv files"
+output: html_notebook
+---
+
+All files up to date as of 7/4/2025. Potential future updates:
+- Check to see if a file already exists that you are trying to run? Does the anonymized file exist and check that an overwrite is fine.
+- Move the original files to another folder location??
+- Productionize the file (start/end times, secrets file, etc.)
+
+## Libraries
+
+```{r}
+library(tidyverse)
+library(lubridate)
+library(googlesheets4)
+```
+
+## Google Drive Data
+
+### Connection
+
+```{r include=FALSE}
+gs4_auth(email = "") # , cache = TRUE
+# gs4_auth(cache = ".secrets", email = TRUE, use_oob = TRUE)
+
+```
+
+### Data sets
+
+```{r}
+sheet_id = "194KKu7z0YYAiBHWh4R0D57GGumSyY9Stc_ssCry2uDA"
+
+member_anon_init = range_read(sheet_id, sheet = "members", col_types = 'iccccD')
+
+# member_group_anon_init = range_read(sheet_id, sheet = "groups", col_types = 'iccDD')
+
+remove(sheet_id)
+```
+
+## CSV Raw Data Sets
+
+### Manually Select Files
+
+Member contact information first
+
+Member Deliveries second
+
+```{r}
+
+contact_loc = choose.files(default = "", caption = "Select the CONTACT file to anonomyze.")
+stopifnot(str_detect(contact_loc, 'Member Contact Info') == TRUE) #making sure the right file was selected
+
+delivery_loc = choose.files(default = "", caption = "Select the DELIVERY file to anonomyze.")
+stopifnot(str_detect(delivery_loc, 'Past Deliveries') == TRUE) #making sure the right file was selected
+```
+
+### Pull Date information and check consistency
+
+```{r}
+contact_loc
+delivery_loc
+
+dash_start_contact = str_locate(contact_loc,'__')[1]
+dash_start_del = str_locate(delivery_loc,'__')[1]
+
+contact_date = str_sub(contact_loc, dash_start_contact-10, dash_start_contact-1)
+del_date = str_sub(delivery_loc, dash_start_del-10, dash_start_del-1)
+
+del_date_range = str_sub(delivery_loc, str_locate(delivery_loc,'(Quantity)')[1]+9)
+
+stopifnot(contact_date == del_date) #making sure the files have the same capture date
+
+```
+
+### Pull Data sets
+
+```{r}
+members_raw = read_csv(contact_loc) |>  #, stringsAsFactors=FALSE unsure if this addition helped or hurt the process??
+  mutate(file_date = ymd(contact_date))
+
+deliveries_raw_short = read_csv(delivery_loc, n_max = 0)
+
+deliveries_raw_dot = read.csv(delivery_loc) #, stringsAsFactors=FALSE unsure if this addition helped or hurt the process??
+
+colnames(deliveries_raw_dot) = colnames(deliveries_raw_short)
+
+deliveries_raw = deliveries_raw_dot |> 
+  mutate(file_date = ymd(del_date)) |> 
+  filter(`First Name` != '' & `Last Name` != '' & Email != '') #removing the total and blank rows.
+
+# deliveries_raw_t_test = deliveries_raw_t |> 
+#   filter(`Last Name` == 'Rathert')
+```
+
+### Members in Delivery output missing
+
+```{r}
+members_anon_check_init = members_raw |> 
+  rename_with(tolower) |> 
+  rename_with(make.names) |> 
+  select(route, pickup_site = pickup.site, file_date, first_name = first.name, last_name = last.name, email) |> 
+  mutate(concat_member = paste0(first_name, "||", last_name, "||", email))
+
+deliveries_anon_check_init = deliveries_raw |> 
+  rename_with(tolower) |> 
+  rename(delivery_date = 'delivery date', first_name = 'first name', last_name = 'last name', zip_code = 'zip code') |> 
+  mutate(concat_member = paste0(first_name, "||", last_name, "||", email),
+         route = NA,
+         pickup_site = NA) |> 
+  filter(concat_member != 'NA||NA||NA') |> 
+  select(route, pickup_site, file_date, first_name, last_name, email, concat_member) |> 
+  distinct() |> 
+  left_join(members_anon_check_init |>
+              select(concat_member) |> 
+              mutate(present = 1)
+              , by = c('concat_member')) |> 
+  filter(is.na(present)) |> 
+  select(-present)
+
+all_members_anon_check = members_anon_check_init |> 
+  rbind(deliveries_anon_check_init)
+
+# checking to make sure no duplicate member information
+stopifnot((all_members_anon_check |> 
+             select(first_name, last_name, email) |> 
+             group_by_all() |> 
+             summarise(max = n()) |> 
+             filter(max > 1) |> 
+             pull()) == 0)
+
+missing_member_id = all_members_anon_check |> 
+  left_join(member_anon_init |> 
+              select(member_id, concat_member)
+            , by = c('concat_member')
+            ) |> 
+  filter(is.na(member_id)) |> 
+  mutate(initial_date = ymd(contact_date))
+
+random_sample = nrow(missing_member_id) + 1000 
+
+sample_df = data.frame('member_id' = 1:random_sample)
+
+sample_new = sample_df |> 
+  left_join(member_anon_init |> 
+              mutate(present = 1) |> 
+              select(member_id, present) |> 
+              distinct() 
+            , by = c('member_id')
+  ) |> 
+  filter(is.na(present))
+
+sample_new$order <-  runif(nrow(sample_new),min = 0, max=1)
+
+sample_new_final = sample_new |> 
+  arrange(order) |> 
+  select(-present, -order) |> 
+  rowid_to_column("id")
+
+member_anon_new = member_anon_init |> 
+  rbind(missing_member_id |> 
+          select(first_name, last_name, email, concat_member, initial_date) |> 
+          rowid_to_column("id") |> 
+          left_join(sample_new_final
+                    , by = c('id')
+                    ) |> 
+          select(-id)|> 
+          relocate(member_id)) |> 
+  arrange(member_id)
+
+# checking to make sure no duplicate member_ids
+stopifnot((member_anon_new |> 
+             select(member_id) |> 
+             group_by_all() |> 
+             summarise(max = n()) |> 
+             filter(max > 1) |> 
+             pull()) == 0)
+
+# only uncomment this when this process is fully ready...
+
+sheet_id = "194KKu7z0YYAiBHWh4R0D57GGumSyY9Stc_ssCry2uDA"
+
+sheet_write(member_anon_new, sheet_id, sheet = "members")
+
+remove(sheet_id)
+
+```
+
+
+## Clean and Anonymize Data Set
+
+### Member Contact Information
+
+```{r}
+members_home_del = members_raw |> 
+  rename_with(tolower) |> 
+  rename_with(make.names) |> # NEED TO BUILD IN CLEANING LOGIC FOR HOME DELIVERY MEMBERS... Eventually as well as Trial members
+  mutate(pickup.site = trimws(pickup.site),
+         last.name = trimws(last.name),
+         site_length = str_length(pickup.site),
+         name_length = str_length(last.name),
+         home_delivery = str_detect(pickup.site, "Home Delivery -"),
+         pickup_detail_v1 = ifelse(home_delivery == TRUE, str_sub(pickup.site, site_length - 3, site_length), NA),
+         pickup_detail_v2 = ifelse(home_delivery == TRUE, str_sub(last.name, name_length - 3, name_length), NA)
+         ) 
+
+members_home_del |> filter(home_delivery == TRUE) |> select(pickup_detail_v1) |> distinct()
+
+#check to make sure the member last name home delivery short name matches to the pick up short description
+stopifnot(members_home_del |> 
+  mutate(check = pickup_detail_v1 == pickup_detail_v2) |> 
+  filter(check == FALSE | 
+           (is.na(pickup_detail_v1) & !is.na(pickup_detail_v1)) | 
+           (!is.na(pickup_detail_v1) & is.na(pickup_detail_v1))
+         ) |> 
+  summarise(n = n()) |> 
+  pull() == 0)
+
+members_init = members_home_del |> 
+  mutate(last.name = trimws(ifelse(!is.na(pickup_detail_v1), str_replace(last.name, pickup_detail_v1, ''), last.name)),
+         pickup.site = ifelse(home_delivery == TRUE, paste0('Home Delivery - ',pickup_detail_v1), pickup.site)
+         ) |> 
+  select(-site_length, -name_length, -pickup_detail_v1, -pickup_detail_v2) |> 
+  mutate(concat_member = paste0(first.name, "||", last.name, "||", email)) |> 
+  select(route, pickup_site = pickup.site, file_date, concat_member) 
+
+members_anon = members_init |> 
+  full_join(member_anon_new |>
+              select(member_id, concat_member)
+              , by = c('concat_member')) |> 
+  select(-concat_member)
+```
+
+
+### Member Deliveries
+
+```{r}
+deliveries_init = deliveries_raw |> 
+  # rename_with(tolower) |> 
+  rename(delivery_date = 'Delivery Date', first_name = 'First Name', last_name = 'Last Name', 
+         email = Email, address = Address, city = City, zip_code = 'Zip Code', state = State) |> 
+  mutate(concat_member = paste0(first_name, "||", last_name, "||", email)) |>
+  relocate(concat_member) |> 
+  filter(concat_member != 'NA||NA||NA') |> 
+  select(-address, -city, -zip_code, -state) # -first_name, -last_name, -email, 
+
+deliveries_init_anon = deliveries_init |> 
+  left_join(member_anon_new |>
+              select(member_id, concat_member)
+              , by = c('concat_member')) |> 
+  relocate(member_id, file_date) 
+
+deliveries_anon_check = deliveries_init_anon |> 
+  filter(is.na(member_id)) |> 
+  select(first_name, last_name, email, concat_member) |> 
+  distinct()
+
+stopifnot(deliveries_anon_check |> 
+            summarise(n = n()) |> 
+            pull() == 0
+)
+
+deliveries_anon = deliveries_init_anon |> 
+  select(-concat_member, -first_name, -last_name, -email)
+
+# deliveries_anon_check_ind = deliveries_init_anon |>
+#   filter(member_id %in% c(99,467))
+```
+
+### Member Deliveries Pivot Long
+
+```{r}
+farmigo_columns = deliveries_anon |> 
+    colnames() |> 
+  as.data.frame() |> 
+  mutate(col_name = colnames(deliveries_anon)) |> 
+  select(-'colnames(deliveries_anon)') |> 
+  ungroup() |> 
+  mutate(price_length = str_count(col_name)
+         , price_str = str_sub(col_name, price_length - 6, price_length)
+         , price = price_str == '- Price') |>  
+  filter(!col_name %in% c('member_id','file_date','delivery_date')) 
+
+farmigo_columns |> 
+  group_by(price) |> 
+  summarise(n = n())
+
+## check to make sure equal price vs quantity columns
+stopifnot(farmigo_columns |>
+            group_by(price) |> 
+            summarise(n = n()) |> 
+             filter(price == TRUE) |> 
+             pull()
+             == farmigo_columns |> 
+            group_by(price) |> 
+            summarise(n = n()) |> 
+             filter(price == FALSE) |> 
+             pull() )
+
+item_list = farmigo_columns |> 
+  filter(price == FALSE) |> 
+  select(col_name) |> 
+  pull()
+
+farmigo_del_cln_sales = deliveries_anon |> 
+  select(member_id, file_date, delivery_date, 
+         all_of(item_list)) |> 
+  pivot_longer(cols = -c(member_id, file_date, delivery_date)
+               , names_to = "item"
+               , values_to = "sales")
+
+farmigo_del_cln_price = deliveries_anon |> 
+  select(-file_date, member_id, delivery_date,
+         -all_of(item_list)) |> 
+  pivot_longer(cols = -c(member_id, delivery_date)
+               , names_to = "item"
+               , values_to = "price") |> 
+  mutate(item = str_sub(item, 0, str_count(item)-8))
+
+farmigo_del_cln = farmigo_del_cln_sales |> 
+  left_join(farmigo_del_cln_price
+            , by = c('member_id', 'delivery_date', 'item')) |> 
+  filter(!is.na(sales) | !is.na(price)) |> 
+  # mutate(total = sales*price) |> 
+  rename(item_unit = item)
+
+stopifnot(farmigo_del_cln |> 
+            filter(is.na(sales)) |> 
+            summarise(n = n()) |> 
+            pull() == 0
+  )
+
+stopifnot(farmigo_del_cln |> 
+            filter(is.na(price)) |> 
+            summarise(n = n()) |> 
+            pull() == 0
+  )
+
+# farmigo_del_cln_check = farmigo_del_cln |>
+#   filter(member_id %in% c(99,467))
+# 
+# farmigo_del_cln_sales_check = farmigo_del_cln_sales |> 
+#   filter(member_id %in% c(99,467)) 
+# 
+# farmigo_del_cln_price_check = farmigo_del_cln_price |> 
+#   filter(member_id %in% c(99,467))
+
+```
+
+
+
+## Create CSV files and upload to Repo
+
+### Member Contact Information
+
+```{r}
+repo_location = 'C:/Users/Fair Shares/Documents/_ds_fairshares/Farmigo_Database/step_1_anonymization/Raw/'
+## repo_location = 'C:/Users/Fair Shares/Documents/_ds_fairshares/Farmigo_Database/step_1_anonymization/Raw/'
+
+write.csv(members_anon
+          , paste0(repo_location, 'contacts/', contact_date, '__member_contact_info_all.csv')
+          , row.names = FALSE)
+```
+
+### Member Deliveries
+
+```{r}
+write.csv(farmigo_del_cln
+          , paste0(repo_location, 'member_deliveries/', del_date, '__member_past_deliveries',del_date_range)
+          , row.names = FALSE)
+```
+
+### Move Temp Files to backup folder
+
+```{r}
+
+```
+
+
+```{r}
+# gs4_deauth()
+```
+
+

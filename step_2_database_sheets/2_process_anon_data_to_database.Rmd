@@ -1,0 +1,377 @@
+---
+title: "Process Anonymized Files to Output Raw Dataset"
+output: html_notebook
+---
+
+
+## Libraries
+
+```{r}
+library(tidyverse)
+library(lubridate)
+library(googlesheets4)
+```
+
+## Folder Structure
+
+```{r}
+start_time = Sys.time()
+
+# main_loc = 'C:/Users/RM/Documents/_ds_fairshares/Farmigo_Database/step_1_anonymization/Raw/'
+main_loc = 'C:/Users/Fair Shares/Documents/_ds_fairshares/Farmigo_Database/step_1_anonymization/Raw/'
+
+mem_del_folder = paste0(main_loc, 'member_deliveries/')
+  
+members_folder = paste0(main_loc, 'contacts/')
+  
+boxb_folder = paste0(main_loc, 'box_builder/')
+
+```
+
+## Google Drive Data
+
+### Connection
+
+```{r}
+gs4_auth(email = "", cache = TRUE)
+# gs4_auth(cache = ".secrets", email = TRUE, use_oob = TRUE)
+
+# sheets_auth()
+# https://stackoverflow.com/questions/44980757/remote-server-authentication-to-read-googlesheets-from-r-script-not-using-servic/59910070#59910070
+```
+
+### Share Rotation
+
+```{r}
+start_time = Sys.time()
+
+
+sr = range_read("1xs8TAMrSsJuL_gou4y0DBH3IkaTH0eBn_pdboCGWFTI"
+                ,sheet = 'share_rotation'
+                ,col_types = 'Dicicncc'
+)
+
+sr_wks = sr |> 
+  select(fs_date = date, fs_date_string = date_string, season, season_week) |> 
+  distinct() |> 
+  mutate(fs_date_start = floor_date(fs_date, unit = 'week')
+         ,fs_date_end = fs_date_start + 6)
+```
+
+
+## External Data Upload
+
+### Member Information
+
+```{r}
+file_master_member = list.files(members_folder) |> 
+  as_tibble() |> 
+  rename(file = value) |>
+  mutate(file_full = paste0(members_folder,file)
+         , snapshot_date = ymd(str_sub(file,0,10))
+         ) |> 
+  arrange(snapshot_date) |> 
+  rownames_to_column() |> 
+  rename(rowname_itm = rowname)
+
+## join files to FS dates
+file_master_member_fs = file_master_member |> 
+  full_join(sr_wks, by = character()) |> 
+  filter(snapshot_date >= fs_date_start & snapshot_date <= fs_date_end) |> 
+  group_by(fs_date) |> 
+  arrange(fs_date, desc(snapshot_date)) |> 
+  mutate(file_rank = rank(desc(snapshot_date))) |> 
+  ungroup() |> 
+  filter(file_rank == 1) |> 
+  select(-file_rank)
+
+## error check to make sure only one file selected
+stopifnot((file_master_member_fs |> 
+             group_by(fs_date) |> 
+             summarise(n = n()) |> 
+             filter(n > 1) |> 
+             pull()
+            ) > 0 )
+
+## takes a bit to run so best to leave as separate table to test/run next few transformations
+farmigo_member_orig = file_master_member_fs |> 
+  left_join(file_master_member |> 
+              pull(file_full) |> 
+              map_df(~read_csv(.x), .id = "rowname_itm") |> 
+              rename_all(tolower) |> 
+              select_all(list(~gsub(" ", "_", .)))
+            , by = c('rowname_itm')
+  )
+
+farmigo_member_history = farmigo_member_orig |> 
+  select(date = fs_date, season, season_week, snapshot_date, member_id, route, pickup_site)
+
+# head(farmigo_member_orig)
+```
+
+### Box Builder (Weekly Shares Items)
+
+LOTS TO FIGURE OUT IN THIS FILE TO GET IT NORMALIZED. THIS FILE MAY BE TEDIOUS TO CLEAN
+
+```{r eval=FALSE, include=FALSE}
+file_boxbuilder = list.files(boxb_folder) |> 
+  as_tibble() |> 
+  rename(file = value) |>
+  mutate(file_full = paste0(boxb_folder,file)
+         , first_dash = str_locate(file,'-')[1]
+         , start_date = mdy(str_sub(file, first_dash+1, first_dash+11))
+         , end_date = mdy(str_sub(file, first_dash+12, first_dash+23))
+         , snapshot_date = ymd(str_sub(file,0,10))
+         ) |> 
+  arrange(snapshot_date) |> 
+  rownames_to_column() |> 
+  rename(rowname_del = rowname)
+
+file_boxbuilder_fs = file_boxbuilder |> 
+  full_join(sr_wks, by = character()) |> 
+  filter(fs_date >= start_date & fs_date <= end_date) |> 
+  group_by(fs_date) |> 
+  arrange(fs_date, desc(snapshot_date)) |> 
+  mutate(file_rank = rank(desc(snapshot_date))) |> 
+  ungroup()
+
+## error check (cannot have more than one file week associated with a week of data)
+stopifnot((file_boxbuilder_fs |> 
+             filter(file_rank == 1) |> 
+             group_by(fs_date) |> 
+             summarise(n = n()) |> 
+             filter(n > 1) |> 
+             pull()
+            ) > 0 ) 
+
+## ISSUE IN THIS STEP. COLUMN HEADERS AREN'T THE SAME IN ALL FILES. I NEED TO TRANSFORM THE FILE BEFORE JOINING IT TO THE ORIGINAL FILE.
+## takes a bit to run so best to leave as separate table to test/run next few transformations
+# test = file_boxbuilder |> 
+#   filter(rowname_del %in% c(4)) |> 
+#   pull(file_full) |> 
+#   map_df(~read_csv(.x), .id = "rowname_del")
+# 
+# 
+# farmigo_boxbuilder_orig = file_boxbuilder |> 
+#   left_join(file_boxbuilder |> 
+#               pull(file_full) |> 
+#               map_df(~read_csv(.x), .id = "rowname_del")
+#               ## DATA TRANSFORMATION LOGIC NEEDS TO BE ADDED HERE!!!
+#             , by = c('rowname_del')
+#   )
+# 
+# 
+# 
+# farmigo_boxbuilder = farmigo_boxbuilder_orig |> 
+#   mutate(delivery_date = ymd(delivery_date) ) |> 
+#   inner_join(file_boxbuilder_fs |> 
+#                filter(file_rank == 1) |> 
+#                select(rowname_del, snapshot_date
+#                       , fs_date, fs_date_string, fs_date_start, fs_date_end)
+#              , by = c('rowname_del','snapshot_date')
+#   ) |> 
+#   relocate(fs_date, fs_date_string, fs_date_start, fs_date_end) |> 
+#   filter(delivery_date >= fs_date_start & delivery_date <= fs_date_end) |> 
+#   select(-file, -file_full, -start_date, -end_date)
+# 
+# ## error check to make sure a week is not being duplicated by multiple files
+# stopifnot((farmigo_boxbuilder |> 
+#              select(fs_date, rowname_del) |> 
+#              distinct() |> 
+#              group_by(fs_date) |> 
+#              summarise(n = n()) |> 
+#              filter(n > 1) |> 
+#              pull()
+#             ) > 0 )
+# 
+# ## error check to make sure a delivery date is not being duplicated by multiple files
+# stopifnot((farmigo_boxbuilder |> 
+#              select(delivery_date, rowname_del) |> 
+#              distinct() |> 
+#              group_by(delivery_date) |> 
+#              summarise(n = n()) |> 
+#              filter(n > 1) |> 
+#              pull()
+#             ) > 0 )
+```
+
+### Member Deliveries (aka Sales)
+
+```{r}
+file_master_memb_del = list.files(mem_del_folder) |> 
+  as_tibble() |> 
+  rename(file = value) |>
+  mutate(file_full = paste0(mem_del_folder,file)
+         , first_dash = str_locate(file,'-')[1]
+         , start_date = mdy(str_sub(file, first_dash+1, first_dash+11))
+         , to_find = str_locate(file,'to-')[1]
+         , end_date = mdy(str_sub(file, to_find+3, to_find+12))
+         , snapshot_date = ymd(str_sub(file,0,10))
+         ) |> 
+  select(-first_dash, -to_find) |> 
+  filter(start_date < end_date) |> #test to make sure no odd files
+  rownames_to_column() |> 
+  rename(rowname_del = rowname)
+
+file_master_allweeks_memb_del = file_master_memb_del |> 
+  full_join(sr_wks, by = character()) |> 
+  filter(fs_date >= start_date & fs_date <= end_date) |> 
+  group_by(fs_date) |> 
+  arrange(fs_date, desc(snapshot_date)) |> 
+  mutate(file_rank = rank(desc(snapshot_date))) |> 
+  ungroup()
+
+## error check (cannot have more than one file week associated with a week of data)
+stopifnot((file_master_allweeks_memb_del |> 
+             filter(file_rank == 1) |> 
+             group_by(fs_date) |> 
+             summarise(n = n()) |> 
+             filter(n > 1) |> 
+             pull()
+            ) > 0 ) 
+
+## takes a bit to run so best to leave as separate table to test/run next few transformations
+farmigo_memb_del_orig = file_master_memb_del |> 
+  left_join(file_master_memb_del |> 
+              pull(file_full) |> 
+              map_df(~read_csv(.x), .id = "rowname_del")
+            , by = c('rowname_del')
+  )
+
+farmigo_memb_del_orig_join = farmigo_memb_del_orig |> 
+  mutate(delivery_date = ymd(delivery_date) ) |> 
+  inner_join(file_master_allweeks_memb_del |> 
+               filter(file_rank == 1) |> 
+               select(rowname_del, snapshot_date
+                      , fs_date, fs_date_string, fs_date_start, fs_date_end, season, season_week)
+             , by = c('rowname_del','snapshot_date')
+  ) |> 
+  relocate(fs_date, fs_date_string, fs_date_start, fs_date_end) |> 
+  filter(delivery_date >= fs_date_start & delivery_date <= fs_date_end)
+
+
+## error check to make sure a week is not being duplicated by multiple files
+stopifnot((farmigo_memb_del_orig_join |> 
+             select(fs_date, rowname_del) |> 
+             distinct() |> 
+             group_by(fs_date) |> 
+             summarise(n = n()) |> 
+             filter(n > 1) |> 
+             pull()
+            ) > 0 )
+
+## error check to make sure a delivery date is not being duplicated by multiple files
+stopifnot((farmigo_memb_del_orig_join |> 
+             select(delivery_date, rowname_del) |> 
+             distinct() |> 
+             group_by(delivery_date) |> 
+             summarise(n = n()) |> 
+             filter(n > 1) |> 
+             pull()
+            ) > 0 )
+
+farmigo_memb_del = farmigo_memb_del_orig_join |> 
+  select(date = fs_date, season, season_week, snapshot_date, delivery_date, member_id, item_unit, sales, price)
+  # select(-file, -file_full, -start_date, -end_date) 
+
+
+# farmigo_del_cln_check = farmigo_memb_del |> 
+#   filter(member_id %in% c(99,467)) |> 
+#   arrange(fs_date, member_id, item_unit)
+
+```
+
+### All Items
+
+```{r}
+
+```
+
+### All Subscriptions
+
+```{r}
+
+```
+
+### Aggregated Delivery Data
+
+```{r}
+
+```
+
+
+## Google Sheet Data Limit Check
+
+Google sheets has a cell limit of 10Million. I should build in checks to all large data sets, like this a check for row/column size, multiplied by each other, to show a percentage of that 10 Million limit. 
+
+```{r}
+# member history
+cell_count_member_history = dim(farmigo_member_history)[1]*dim(farmigo_member_history)[2]
+
+print(paste0('percentage filled to Google Sheets maximum cell count ',(cell_count_member_history / 10000000)*100, '%'))
+
+stopifnot(cell_count_member_history <= 10000000)
+
+# boxbuilder
+## to be built
+
+# member deliveries
+cell_count_memb_del = dim(farmigo_memb_del)[1]*dim(farmigo_memb_del)[2]
+
+print(paste0('percentage filled to Google Sheets maximum cell count ',(cell_count_memb_del / 10000000)*100, '%'))
+
+stopifnot(cell_count_memb_del <= 10000000)
+
+# all items
+## to be built
+
+# all subscriptions
+## to be built
+
+# aggregated delivery date
+## to be built
+
+```
+
+
+## Upload Data Sets
+
+
+### sheet id
+```{r}
+sheet_id_farmigo = "1W34-fLMAWPt5VvWb6kiVxWPikgn0Ly2e6JjhQIOmsF4"
+```
+
+
+### Upload
+
+```{r}
+# member history
+sheet_write(farmigo_member_history, sheet_id_farmigo, sheet = "member_group_history")
+
+# boxbuilder
+## to be built
+
+# member deliveries
+sheet_write(farmigo_memb_del, sheet_id_farmigo, sheet = "sales_deliveries")
+
+# all items
+## to be built
+
+# all subscriptions
+## to be built
+
+# aggregated delivery date
+## to be built
+```
+
+
+```{r}
+rm(sheet_id_farmigo)
+
+end_time = Sys.time()
+
+start_time
+end_time
+```
+

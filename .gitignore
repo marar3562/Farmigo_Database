@@ -1,0 +1,14 @@
+# Secrets
+.secrets/
+
+# R notebook html files
+*.nb.html
+
+# download files (will delete out later)
+# farmigo_downloads/
+
+# dcf file of shinyapps
+*.dcf
+
+# shinyapps.io
+rsconnect/

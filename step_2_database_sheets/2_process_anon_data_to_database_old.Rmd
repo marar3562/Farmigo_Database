@@ -1,0 +1,375 @@
+---
+title: "Process Anonymized Files to Output Raw Dataset v1"
+output: html_notebook
+---
+
+
+STOPPED HERE 5/30/2025: THIS FILE MAY NEED TO BE REWRITTEN ENTIRELY. I HAD TO TAKE THE PIVOT LOGIC OUT OF THIS FILE AND PASTE IT INTO THE FIRST FILE BECAUSE OF ODD READ ISSUES IN R. PIVOTING THE DATA SEEMS TO HAVE FIXED THE ISSUE BASED ON MARGHERIO AND RATHERT DATA. THE STEP BELOW ON DELIVERY DATA SHOULD BE REVIEWED AGAIN TO MAKE SURE NO ISSUES ARE IDENTIFIED WITH THIS FILE BEING RENAMED MOST LIKELY.
+
+
+## Libraries
+
+```{r}
+library(tidyverse)
+library(lubridate)
+library(googlesheets4)
+```
+
+## Folder Structure
+
+```{r}
+# main_loc = 'C:/Users/RM/Documents/_ds_fairshares/FS_P006_Non_Produce_Information/P6_Farmigo_Data/'
+main_loc = 'C:/Users/Fair Shares/Documents/_ds_fairshares/FS_P012_Member_Purchase_History/Data/Raw/'
+
+mem_del_folder = paste0(main_loc, 'member_deliveries/')
+  
+members_folder = paste0(main_loc, 'contacts/')
+  
+boxb_folder = paste0(main_loc, 'boxbuilder/')
+
+```
+
+## Google Drive Data
+
+### Connection
+
+```{r}
+gs4_auth(email = "", cache = TRUE)
+# gs4_auth(cache = ".secrets", email = TRUE, use_oob = TRUE)
+
+# sheets_auth()
+# https://stackoverflow.com/questions/44980757/remote-server-authentication-to-read-googlesheets-from-r-script-not-using-servic/59910070#59910070
+```
+
+### Share Rotation
+
+```{r}
+start_time = Sys.time()
+
+
+sr = range_read("1xs8TAMrSsJuL_gou4y0DBH3IkaTH0eBn_pdboCGWFTI"
+                ,sheet = 'share_rotation'
+                ,col_types = 'Dicicncc'
+)
+
+sr_wks = sr |> 
+  select(fs_date = date, fs_date_string = date_string) |> 
+  distinct() |> 
+  mutate(fs_date_start = floor_date(fs_date, unit = 'week')
+         ,fs_date_end = fs_date_start + 6)
+```
+
+
+## External Data Upload
+
+### Member Information
+
+```{r}
+file_master_member = list.files(members_folder) |> 
+  as_tibble() |> 
+  rename(file = value) |>
+  mutate(file_full = paste0(members_folder,file)
+         , snapshot_date = ymd(str_sub(file,0,10))
+         ) |> 
+  arrange(snapshot_date) |> 
+  rownames_to_column() |> 
+  rename(rowname_itm = rowname)
+
+## join files to FS dates
+file_master_member_fs = file_master_member |> 
+  full_join(sr_wks, by = character()) |> 
+  filter(snapshot_date >= fs_date_start & snapshot_date <= fs_date_end) |> 
+  group_by(fs_date) |> 
+  arrange(fs_date, desc(snapshot_date)) |> 
+  mutate(file_rank = rank(desc(snapshot_date))) |> 
+  ungroup() |> 
+  filter(file_rank == 1) |> 
+  select(-file_rank)
+
+## error check to make sure only one file selected
+stopifnot((file_master_member_fs |> 
+             group_by(fs_date) |> 
+             summarise(n = n()) |> 
+             filter(n > 1) |> 
+             pull()
+            ) > 0 )
+
+## takes a bit to run so best to leave as separate table to test/run next few transformations
+farmigo_member_orig = file_master_member_fs |> 
+  left_join(file_master_member |> 
+              pull(file_full) |> 
+              map_df(~read_csv(.x), .id = "rowname_itm") |> 
+              rename_all(tolower) |> 
+              select_all(list(~gsub(" ", "_", .)))
+            , by = c('rowname_itm')
+  )
+
+head(farmigo_member_orig)
+```
+
+### Box Builder (Weekly Shares Items)
+
+```{r}
+
+```
+
+### Member Deliveries (aka Sales)
+
+I FOUND THAT THE PROCESS OF CREATING A NEW CSV FILE AND THEN INGESTING THAT SECOND VERSION IS CREATING ISSUES. FOR SOME REASON R IS NOT PROPERLY INGESTING THE CORRECT NUMBERS WITH THE SECOND FILE. IT APPEARS I NEED TO MANIPULATE THE RAW DATA FOR DELIVERIES IN THE FIRST FILE BEFORE GOING THROUGH A MORE THOROUGH CLEANING PROCESS.
+
+```{r}
+file_master_memb_del = list.files(mem_del_folder) |> 
+  as_tibble() |> 
+  rename(file = value) |>
+  mutate(file_full = paste0(mem_del_folder,file)
+         , first_dash = str_locate(file,'-')[1]
+         , start_date = mdy(str_sub(file, first_dash+1, first_dash+11))
+         , to_find = str_locate(file,'to-')[1]
+         , end_date = mdy(str_sub(file, to_find+3, to_find+12))
+         , snapshot_date = ymd(str_sub(file,0,10))
+         ) |> 
+  select(-first_dash, - to_find) |> 
+  filter(start_date < end_date) |> #test to make sure no odd files
+  rownames_to_column() |> 
+  rename(rowname_del = rowname)
+
+file_master_allweeks_memb_del = file_master_memb_del |> 
+  full_join(sr_wks, by = character()) |> 
+  filter(fs_date >= start_date & fs_date <= end_date) |> 
+  group_by(fs_date) |> 
+  arrange(fs_date, desc(snapshot_date)) |> 
+  mutate(file_rank = rank(desc(snapshot_date))) |> 
+  ungroup()
+
+## error check (cannot have more than one file week associated with a week of data)
+stopifnot((file_master_allweeks_memb_del |> 
+             filter(file_rank == 1) |> 
+             group_by(fs_date) |> 
+             summarise(n = n()) |> 
+             filter(n > 1) |> 
+             pull()
+            ) > 0 ) 
+
+## takes a bit to run so best to leave as separate table to test/run next few transformations
+farmigo_memb_del_orig = file_master_memb_del |> 
+  left_join(file_master_memb_del |> 
+              pull(file_full) |> 
+              map_df(~read_csv(.x), .id = "rowname_del")
+            , by = c('rowname_del')
+  )
+
+farmigo_memb_del = farmigo_memb_del_orig |> 
+  mutate(delivery_date = ymd(delivery_date) ) |> 
+  inner_join(file_master_allweeks_memb_del |> 
+               filter(file_rank == 1) |> 
+               select(rowname_del, snapshot_date
+                      , fs_date, fs_date_string, fs_date_start, fs_date_end)
+             , by = c('rowname_del','snapshot_date')
+  ) |> 
+  relocate(fs_date, fs_date_string, fs_date_start, fs_date_end) |> 
+  filter(delivery_date >= fs_date_start & delivery_date <= fs_date_end) |> 
+  select(-file, -file_full, -start_date, -end_date)
+
+## error check to make sure a week is not being duplicated by multiple files
+stopifnot((farmigo_memb_del |> 
+             select(fs_date, rowname_del) |> 
+             distinct() |> 
+             group_by(fs_date) |> 
+             summarise(n = n()) |> 
+             filter(n > 1) |> 
+             pull()
+            ) > 0 )
+
+## error check to make sure a delivery date is not being duplicated by multiple files
+stopifnot((farmigo_memb_del |> 
+             select(delivery_date, rowname_del) |> 
+             distinct() |> 
+             group_by(delivery_date) |> 
+             summarise(n = n()) |> 
+             filter(n > 1) |> 
+             pull()
+            ) > 0 )
+
+farmigo_columns = farmigo_memb_del |> 
+    colnames() |> 
+  as.data.frame() |> 
+  mutate(col_name = colnames(farmigo_memb_del)) |> 
+  select(-'colnames(farmigo_memb_del)') |> 
+  ungroup() |> 
+  mutate(price_length = str_count(col_name)
+         , price_str = str_sub(col_name, price_length - 6, price_length)
+         , price = price_str == '- price') |>  ## 
+  filter(row_number() > 9) 
+
+farmigo_columns |> 
+  group_by(price) |> 
+  summarise(n = n())
+
+## check to make sure equal price vs quantity columns
+stopifnot(farmigo_columns |>
+            group_by(price) |> 
+            summarise(n = n()) |> 
+             filter(price == TRUE) |> 
+             pull()
+             == farmigo_columns |> 
+            group_by(price) |> 
+            summarise(n = n()) |> 
+             filter(price == FALSE) |> 
+             pull() )
+
+
+###### START AGAIN HERE... THIS IS WHERE THE PIVOTING NEEDS TO OCCUR, BUT TWICE (Qty and Price). Logic above determines price vs not price columns. 
+# farmigo_memb_del_test = farmigo_memb_del |> 
+#   select(member_id, delivery_date
+#          , 'chicken - bulk breasts /lb. - pack'
+#          , 'chicken - bulk breasts /lb. - pack - price'
+#          , 'chicken - big bag deboned thighs/lb. - bag'
+#          , 'chicken - big bag deboned thighs/lb. - bag - price'
+#          , 'jam choice (lg. $7) - pint'
+#          , 'jam choice (lg. $7) - pint - price')
+# 
+# farmigo_memb_del_test_i = farmigo_memb_del |> 
+#   select(member_id, delivery_date
+#          , 'chicken - bulk breasts /lb. - pack'
+#          , 'chicken - big bag deboned thighs/lb. - bag'
+#          , 'jam choice (lg. $7) - pint')
+# 
+# farmigo_memb_del_test_p = farmigo_memb_del |> 
+#   select(member_id, delivery_date
+#          , 'chicken - bulk breasts /lb. - pack - price'
+#          , 'chicken - big bag deboned thighs/lb. - bag - price'
+#          , 'jam choice (lg. $7) - pint - price')
+# 
+# 
+# farmigo_del_cln_test_i = farmigo_memb_del_test_i |> 
+#   pivot_longer(cols = -c(member_id, delivery_date)
+#                , names_to = "item"
+#                , values_to = "sales")
+# 
+# farmigo_del_cln_test_p = farmigo_memb_del_test_p |> 
+#   pivot_longer(cols = -c(member_id, delivery_date)
+#                , names_to = "item"
+#                , values_to = "price") |> 
+#   mutate(item = str_sub(item, 0, str_count(item)-8))
+# 
+# 
+# farmigo_del_cln_test = farmigo_del_cln_test_i |> 
+#   left_join(farmigo_del_cln_test_p
+#             , by = c('member_id', 'delivery_date', 'item'))
+
+
+items = farmigo_columns |> 
+  filter(price == FALSE) |> 
+  select(col_name) |> 
+  pull()
+
+farmigo_del_cln_sales = farmigo_memb_del |> 
+  select(fs_date, fs_date_string, fs_date_start, fs_date_end
+         , rowname_del, snapshot_date, member_id, file_date, delivery_date, 
+         all_of(items)) |> 
+  pivot_longer(cols = -c(fs_date, fs_date_string, fs_date_start, fs_date_end
+                         , rowname_del, snapshot_date, member_id, file_date, delivery_date)
+               , names_to = "item"
+               , values_to = "sales")
+
+farmigo_del_cln_price = farmigo_memb_del |> 
+  select(-fs_date, -fs_date_string, -fs_date_start, -fs_date_end,
+         -rowname_del, -snapshot_date, -file_date,
+         member_id, delivery_date,
+         -all_of(items)) |> 
+  pivot_longer(cols = -c(member_id, delivery_date)
+               , names_to = "item"
+               , values_to = "price") |> 
+  mutate(item = str_sub(item, 0, str_count(item)-8))
+
+###LEFT OFF HERE... THIS IS WORKING BUT NEED TO CHECK NUMBERS, THERE ARE NA PRICE VALUES WHEN LOOKING AT 99
+farmigo_del_cln = farmigo_del_cln_sales |> 
+  left_join(farmigo_del_cln_price
+            , by = c('member_id', 'delivery_date', 'item')) |> 
+  filter(!is.na(sales) | !is.na(price)) |> 
+  mutate(total = sales*price) |> 
+  rename(item_unit = item)
+
+farmigo_del_cln_check = farmigo_del_cln |> 
+  filter(member_id %in% c(99,467))
+
+## original code, need to see if any of this is still necessary
+# farmigo_del_cln = farmigo_memb_del |> 
+#   pivot_longer(cols = -c(fs_date, fs_date_string, fs_date_start, fs_date_end
+#                          , rowname_del, snapshot_date, member_id, file_date, delivery_date)
+#                , names_to = "item_unit"
+#                , values_to = "sales") |> 
+#   filter(sales > 0) |> 
+#   mutate(extra_space = str_locate(item_unit,'  -')[,'end']
+#          ,extra_space = ifelse(is.na(extra_space), 0, extra_space)
+#          ,last_dash = map(str_locate_all(item_unit,' -'), max)
+#          ,item_unit = ifelse(extra_space == last_dash
+#                             ,paste0(str_sub(item_unit, 1, str_locate(item_unit,'  -')[,'end']-2)
+#                                     , str_sub(item_unit, str_locate(item_unit,'  -')[,'end'], -1)
+#                                     )
+#                             , item_unit)
+#          ) |> 
+#   select(-extra_space, -last_dash)
+# 
+# head(farmigo_del_cln)
+# 
+# farmigo_del_cln_wkly = farmigo_del_cln |> 
+#   group_by(fs_date, fs_date_string, fs_date_start, fs_date_end, item_unit) |> 
+#   summarize(sales = sum(sales)
+#             , rowname_del = paste0(unique(rowname_del), collapse = ",")
+#             , snapshot_date = paste0(unique(snapshot_date), collapse = ",")) |> 
+#   ungroup()
+# 
+# head(farmigo_del_cln_wkly |> arrange(item_unit, fs_date))
+```
+
+## Google Sheet Data Limit Check
+
+Google sheets has a cell limit of 10Million. I should build in checks to all large data sets, like this a check for row/column size, multiplied by each other, to show a percentage of that 10 Million limit. 
+
+```{r}
+
+```
+
+
+
+## Data Manipulations
+
+### Member Sales Combined
+
+```{r}
+
+```
+
+### Boxbuilder on its own
+
+```{r}
+
+```
+
+### Member Share Change History
+
+```{r}
+
+```
+
+
+## Upload Data Sets
+
+### Member Sales Combined
+
+```{r}
+
+```
+
+### Boxbuilder on its own
+
+```{r}
+
+```
+
+### Member Share Change History
+
+```{r}
+
+```
