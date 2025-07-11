@@ -21,10 +21,12 @@ start_time = Sys.time()
 main_loc = 'C:/Users/Fair Shares/Documents/_ds_fairshares/Farmigo_Database/step_1_anonymization/Raw/'
 
 mem_del_folder = paste0(main_loc, 'member_deliveries/')
-  
+boxb_folder = paste0(main_loc, 'box_builder/') 
 members_folder = paste0(main_loc, 'contacts/')
-  
-boxb_folder = paste0(main_loc, 'box_builder/')
+items_folder = paste0(main_loc, 'items/') 
+backup_inv_folder = paste0(main_loc, 'backup_inventory_upload/') 
+subscriptions_folder = paste0(main_loc, 'subscriptions/') 
+aggr_del_folder = paste0(main_loc, 'aggregated_deliveries/') 
 
 ```
 
@@ -283,9 +285,235 @@ farmigo_memb_del = farmigo_memb_del_orig_join |>
 
 ### All Items
 
-```{r}
+#### Master All Item File (Farmigo)
 
+```{r eval=FALSE, include=FALSE}
+
+file_master_itm = list.files(items_folder) |> 
+  as_tibble() |> 
+  rename(file = value) |>
+  mutate(file_full = paste0(items_folder,file)
+         , snapshot_date = mdy(str_sub(file,
+                                     str_locate(file
+                                                ,'-')[2]+1
+                                     , -5)
+                             )
+         , inv_usable = ifelse(str_sub(file,0,1)=='x', 'N', 'Y')
+         ) |> 
+  arrange(snapshot_date) |> 
+  rownames_to_column() |> 
+  rename(rowname_itm = rowname)
+
+## join files to FS dates
+file_master_itm_fs = file_master_itm |> 
+  full_join(sr_wks
+            , by = character()) |> 
+  filter(snapshot_date >= fs_date_start & snapshot_date <= fs_date_end) |> 
+  group_by(fs_date) |> 
+  arrange(fs_date, desc(snapshot_date), desc(inv_usable)) |> 
+  mutate(file_rank = rank(desc(snapshot_date))) |> 
+  ungroup() |> 
+  filter(file_rank == 1) |> 
+  select(-file_rank)
+
+## error check to make sure only one file selected
+stopifnot((file_master_itm_fs |> 
+             group_by(fs_date) |> 
+             summarise(n = n()) |> 
+             filter(n > 1) |> 
+             pull()
+            ) > 0 )
+
+## takes a bit to run so best to leave as separate table to test/run next few transformations
+farmigo_itm_orig = file_master_itm_fs |> 
+  left_join(file_master_itm |> 
+              pull(file_full) |> 
+              map_df(~read_csv(.x), .id = "rowname_itm") |> 
+              rename_all(tolower) |> 
+              select_all(list(~gsub(" ", "_", .)))
+            , by = c('rowname_itm')
+  )
+
+head(farmigo_itm_orig)
 ```
+
+#### Backup Inventory Upload (from Food List)
+
+This logic was created in case we forgot to get a Farmigo copy of the All Item data set. This process is not used anymore. 
+
+```{r}
+file_master_upld = list.files(backup_inv_folder) |> 
+  as_tibble() |> 
+  rename(file = value) |>
+  mutate(file_full = paste0(backup_inv_folder,file)
+         , snapshot_date = mdy(str_sub(file,
+                                     str_locate(file
+                                                ,'__')[2]+2
+                                     , -5)
+                             )
+         ) |> 
+  arrange(snapshot_date) |> 
+  rownames_to_column() |> 
+  rename(rowname_upld = rowname)
+
+## join files to FS dates
+file_master_upld_fs = file_master_upld |> 
+  full_join(sr_wks
+            , by = character()) |> 
+  filter(snapshot_date >= fs_date_start & snapshot_date <= fs_date_end) |> 
+  group_by(fs_date) |> 
+  arrange(fs_date, desc(snapshot_date)) |> 
+  mutate(file_rank = rank(desc(snapshot_date))) |> 
+  ungroup() |> 
+  filter(file_rank == 1) |> 
+  select(-file_rank)
+
+## error check to make sure only one file selected
+stopifnot((file_master_upld_fs |> 
+             group_by(fs_date) |> 
+             summarise(n = n()) |> 
+             filter(n > 1) |> 
+             pull()
+            ) > 0 )
+
+## takes a bit to run so best to leave as separate table to test/run next few transformations
+farmigo_upld_orig = file_master_upld_fs |> 
+  left_join(file_master_upld |> 
+              pull(file_full) |> 
+              map_df(~read_csv(.x), .id = "rowname_upld") |> 
+              rename_all(tolower) |> 
+              select_all(list(~gsub(" ", "_", .)))
+            , by = c('rowname_upld')
+  )
+
+head(farmigo_upld_orig)
+```
+
+#### All Item / Backup Inventory Upload Combined
+
+```{r}
+file_master_inv = sr_wks |> 
+  filter(fs_date <= Sys.Date()) |> # may need to change this date filter in future
+  left_join(file_master_itm_fs |> 
+              select(fs_date, itm_inv = inv_usable, rowname_itm)
+            , by = c('fs_date')
+            ) |> 
+  left_join(file_master_upld_fs |>
+              mutate(upld = 'Y') |> 
+              select(fs_date, upld, rowname_upld)
+            , by = c('fs_date')
+            ) |> 
+  replace_na(list(itm_inv = ' ', upld = ' ')) |> 
+  mutate(file_status = ifelse(itm_inv == 'Y', 'farmigo file', 
+                              ifelse(upld == 'Y', 'upload file', 'none'))
+         )
+
+### Combine three data sets:
+### 1. Weeks with no inventory data (Upload OR farmigo file) - leaving out for now
+  ### This adds extra data as we have to use newer files to assume item information
+  ### will look at last to see if truly needed
+
+### 2. Weeks with no inventory BUT with farmigo file
+inv_all_itm_no_inv = file_master_inv |> 
+  filter(file_status == 'none' & !is.na(rowname_itm)) |> 
+  left_join(farmigo_itm_orig |> 
+              select(-fs_date, -fs_date_string, -season, -season_week, -fs_date_start, -fs_date_end)
+            , by = c('rowname_itm')
+            )
+
+### 3. Weeks with item inventory (all items)
+inv_all_itm = file_master_inv |> 
+  filter(file_status == 'farmigo file') |> 
+  left_join(farmigo_itm_orig |> 
+              select(-fs_date, -fs_date_string, -season, -season_week, -fs_date_start, -fs_date_end)
+            , by = c('rowname_itm')
+            )
+
+### 4. Weeks with upload inventory (all items)
+  ### Items where Item and Upload file BOTH present in the week
+inv_upld_all_itm = file_master_inv |> 
+  filter(file_status == 'upload file') |> 
+  left_join(farmigo_itm_orig |> 
+              select(-fs_date, -fs_date_string, -season, -season_week, -fs_date_start, -fs_date_end,
+                     -file, -file_full, -snapshot_date)
+            , by = c('rowname_itm')
+            ) |> 
+  left_join(farmigo_upld_orig |> 
+              select(-fs_date, -fs_date_string, -season, -season_week, -fs_date_start, -fs_date_end, upload = available)
+            , by = c('rowname_upld', 'item')
+            ) 
+  ### Items where ONLY Upload present, THEN combine with the table above
+
+inv_upld = inv_upld_all_itm |> 
+  filter(!fs_date %in% c(inv_upld_all_itm |> 
+                                  select(fs_date, file_status) |> 
+                                  distinct() |> 
+                                  group_by(fs_date) |> 
+                                  summarise(n = n()) |> 
+                                  filter(n == 1) |> 
+                                  select(fs_date) |> 
+                                  pull()
+                         )
+         ) |> 
+  union_all(file_master_inv |> 
+        filter(file_status == 'upload file' & 
+                 fs_date %in% c(inv_upld_all_itm |> 
+                                  select(fs_date, file_status) |> 
+                                  distinct() |> 
+                                  group_by(fs_date) |> 
+                                  summarise(n = n()) |> 
+                                  filter(n == 1) |> 
+                                  select(fs_date) |> 
+                                  pull()
+                   )
+               ) |> 
+        left_join(farmigo_upld_orig |> 
+                    mutate(inv_usable = NA, avail = available) |> 
+                    select(-fs_date, -fs_date_string, -season, -season_week, -fs_date_start, -fs_date_end, inv_usable, -available) |> 
+                    relocate(item, .after = last_col())
+                  , by = c('rowname_upld')
+                  ) |> 
+    mutate(category = NA, additional_categories = NA, available = avail, price = NA, status = NA, producer = NA, title_spanish = NA,
+           unit_quantity = NA, unit = NA, is_credit = NA, pack_separately = NA, max_per_member = NA, image_url = NA,
+           description = NA, link = NA, weight = NA, label = NA, upload = avail) |> 
+    select(-avail)
+  ) |> 
+  union_all(inv_all_itm_no_inv |> 
+              mutate(upload = available))
+
+#### Combine into a single table
+inv_comb = inv_all_itm |>
+  mutate(upload = NA) |> 
+  union_all(inv_upld) |> 
+  mutate(start_inv = case_when(
+    file_status == 'farmigo file' ~ available,
+    file_status == 'upload file' ~ upload)
+    ) |> 
+  arrange(fs_date, item)
+
+## Checking to make sure value look similar and data not being excluded
+## >= 100 filter to get rid of items we assume we have an unlimited supply of
+# inv_comb |> 
+#   group_by(fs_date) |> 
+#   summarise(n = n(),
+#             start_inv = sum(ifelse(start_inv >= 100, 0, start_inv), na.rm=TRUE))
+# 
+# farmigo_upld_orig |> 
+#   group_by(fs_date) |> 
+#   summarise(n = n(),
+#             start_inv = sum(ifelse(available >= 100, 0, available), na.rm=TRUE))
+# 
+# farmigo_itm_orig |> 
+#   group_by(fs_date) |> 
+#   summarise(n = n(),
+#             start_inv = sum(ifelse(available >= 100, 0, available), na.rm=TRUE))
+
+
+farmigo_all_item = inv_comb |> 
+  select(date = fs_date, season, season_week, snapshot_date, file_status, item, category, start_available = start_inv,
+         price, status, producer, unit_quantity, unit, max_per_member)
+```
+
 
 ### All Subscriptions
 
@@ -308,7 +536,7 @@ Google sheets has a cell limit of 10Million. I should build in checks to all lar
 # member history
 cell_count_member_history = dim(farmigo_member_history)[1]*dim(farmigo_member_history)[2]
 
-print(paste0('percentage filled to Google Sheets maximum cell count ',(cell_count_member_history / 10000000)*100, '%'))
+print(paste0('percentage filled to Google Sheets maximum cell count (Member History) ',(cell_count_member_history / 10000000)*100, '%'))
 
 stopifnot(cell_count_member_history <= 10000000)
 
@@ -318,12 +546,16 @@ stopifnot(cell_count_member_history <= 10000000)
 # member deliveries
 cell_count_memb_del = dim(farmigo_memb_del)[1]*dim(farmigo_memb_del)[2]
 
-print(paste0('percentage filled to Google Sheets maximum cell count ',(cell_count_memb_del / 10000000)*100, '%'))
+print(paste0('percentage filled to Google Sheets maximum cell count (Member Deliveries) ',(cell_count_memb_del / 10000000)*100, '%'))
 
 stopifnot(cell_count_memb_del <= 10000000)
 
 # all items
-## to be built
+cell_count_all_item = dim(farmigo_all_item)[1]*dim(farmigo_all_item)[2]
+
+print(paste0('percentage filled to Google Sheets maximum cell count (All Items) ',(cell_count_all_item / 10000000)*100, '%'))
+
+stopifnot(cell_count_all_item <= 10000000)
 
 # all subscriptions
 ## to be built
@@ -356,7 +588,7 @@ sheet_write(farmigo_member_history, sheet_id_farmigo, sheet = "member_group_hist
 sheet_write(farmigo_memb_del, sheet_id_farmigo, sheet = "sales_deliveries")
 
 # all items
-## to be built
+sheet_write(farmigo_all_item, sheet_id_farmigo, sheet = "all_items")
 
 # all subscriptions
 ## to be built
