@@ -391,6 +391,8 @@ head(farmigo_upld_orig)
 
 #### All Item / Backup Inventory Upload Combined
 
+ALL ITEM DATA LOOKS GREAT! I STILL NEED TO GO BACK TO THE TWO FILES IN THE FS_P006_Non_Produce_Information AND UPDATE THEM TO USE THE NEW DATA SET FROM GOOGLE SHEETS SO I CAN REMOVE THAT CODE AND HAVE ALL OF THIS DATA PERMANENTLY GOING TO THIS GIT REPO (AT THAT TIME I CAN ALSO MOVE ALL SUBSCRIPTION DATA IN AS WELL). THE AGGREGATED DELIVERY DATA MIGHT COME LATER, IF EVER??
+
 ```{r}
 file_master_inv = sr_wks |> 
   filter(fs_date <= Sys.Date()) |> # may need to change this date filter in future
