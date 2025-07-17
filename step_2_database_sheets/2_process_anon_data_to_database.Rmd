@@ -287,7 +287,7 @@ farmigo_memb_del = farmigo_memb_del_orig_join |>
 
 #### Master All Item File (Farmigo)
 
-```{r eval=FALSE, include=FALSE}
+```{r}
 
 file_master_itm = list.files(items_folder) |> 
   as_tibble() |> 
@@ -390,8 +390,6 @@ head(farmigo_upld_orig)
 ```
 
 #### All Item / Backup Inventory Upload Combined
-
-ALL ITEM DATA LOOKS GREAT! I STILL NEED TO GO BACK TO THE TWO FILES IN THE FS_P006_Non_Produce_Information AND UPDATE THEM TO USE THE NEW DATA SET FROM GOOGLE SHEETS SO I CAN REMOVE THAT CODE AND HAVE ALL OF THIS DATA PERMANENTLY GOING TO THIS GIT REPO (AT THAT TIME I CAN ALSO MOVE ALL SUBSCRIPTION DATA IN AS WELL). THE AGGREGATED DELIVERY DATA MIGHT COME LATER, IF EVER??
 
 ```{r}
 file_master_inv = sr_wks |> 
@@ -526,6 +524,122 @@ farmigo_all_item = inv_comb |>
 ### Aggregated Delivery Data
 
 ```{r}
+file_master_del_aggr = list.files(aggr_del_folder) |> 
+  as_tibble() |> 
+  rename(file = value) |>
+  mutate(file_full = paste0(aggr_del_folder,file)
+         , first_dash = str_locate(file,'-')[1]
+         , start_date = mdy(str_sub(file, first_dash+1, first_dash+11))
+         , to_find = str_locate(file,'to-')[1]
+         , end_date = mdy(str_sub(file, to_find+3, to_find+12))
+         , snapshot_date = mdy(str_sub(file,
+                                     str_locate(file
+                                                ,'__')[2]+2
+                                     , -5)
+                             )
+         ) |> 
+  select(-first_dash, - to_find) |> 
+  filter(start_date < end_date) |> #test to make sure no odd files
+  rownames_to_column() |> 
+  rename(rowname_del = rowname)
+
+file_master_allweeks_del_aggr = file_master_del_aggr |> 
+  full_join(sr_wks, by = character()) |> 
+  filter(fs_date >= start_date & fs_date <= end_date) |> 
+  group_by(fs_date) |> 
+  arrange(fs_date, desc(snapshot_date)) |> 
+  mutate(file_rank = rank(desc(snapshot_date))) |> 
+  ungroup()
+
+## error check (cannot have more than one file week associated with a week of data)
+stopifnot((file_master_allweeks_del_aggr |> 
+             filter(file_rank == 1) |> 
+             group_by(fs_date) |> 
+             summarise(n = n()) |> 
+             filter(n > 1) |> 
+             pull()
+            ) > 0 ) 
+
+## takes a bit to run so best to leave as separate table to test/run next few transformations
+farmigo_del_aggr_orig = file_master_del_aggr |> 
+  left_join(file_master_del_aggr |> 
+              pull(file_full) |> 
+              map_df(~read_csv(.x), .id = "rowname_del")
+            , by = c('rowname_del')
+  )
+
+farmigo_del_aggr = farmigo_del_aggr_orig |> 
+  rename(delivery_date = 'Delivery Date') |> 
+  filter(str_sub(delivery_date, 1, 5) == 'Total') |> 
+  mutate(delivery_date = ymd(str_replace(delivery_date,'Total - ','')) ) |> 
+  inner_join(file_master_allweeks_del_aggr |> 
+               filter(file_rank == 1) |> 
+               select(rowname_del, snapshot_date
+                      , fs_date, fs_date_string, fs_date_start, fs_date_end)
+             , by = c('rowname_del','snapshot_date')
+  ) |> 
+  relocate(fs_date, fs_date_string, fs_date_start, fs_date_end) |> 
+  filter(delivery_date >= fs_date_start & delivery_date <= fs_date_end) |> 
+  select(-file, -file_full, -start_date, -end_date)
+
+## error check to make sure a week is not being duplicated by multiple files
+stopifnot((farmigo_del_aggr |> 
+             select(fs_date, rowname_del) |> 
+             distinct() |> 
+             group_by(fs_date) |> 
+             summarise(n = n()) |> 
+             filter(n > 1) |> 
+             pull()
+            ) > 0 )
+
+## error check to make sure a delivery date is not being duplicated by multiple files
+stopifnot((farmigo_del_aggr |> 
+             select(delivery_date, rowname_del) |> 
+             distinct() |> 
+             group_by(delivery_date) |> 
+             summarise(n = n()) |> 
+             filter(n > 1) |> 
+             pull()
+            ) > 0 )
+
+farmigo_del_aggr_cln = farmigo_del_aggr |> 
+  pivot_longer(cols = -c(fs_date, fs_date_string, fs_date_start, fs_date_end
+                         , rowname_del, snapshot_date, delivery_date)
+               , names_to = "item_unit"
+               , values_to = "sales") |> 
+  filter(sales > 0) |> 
+  mutate(extra_space = str_locate(item_unit,'  -')[,'end']
+         ,extra_space = ifelse(is.na(extra_space), 0, extra_space)
+         ,last_dash = map(str_locate_all(item_unit,' -'), max)
+         ,item_unit = ifelse(extra_space == last_dash
+                            ,paste0(str_sub(item_unit, 1, str_locate(item_unit,'  -')[,'end']-2)
+                                    , str_sub(item_unit, str_locate(item_unit,'  -')[,'end'], -1)
+                                    )
+                            , item_unit)
+         ) |> 
+  select(-extra_space, -last_dash)
+
+head(farmigo_del_aggr_cln)
+
+farmigo_del_aggr_cln_wkly = farmigo_del_aggr_cln |> 
+  group_by(fs_date, fs_date_string, fs_date_start, fs_date_end, item_unit) |> 
+  summarize(sales = sum(sales)
+            , rowname_del = paste0(unique(rowname_del), collapse = ",")
+            , snapshot_date = paste0(unique(snapshot_date), collapse = ",")) |> 
+  ungroup() |> 
+  left_join(file_master_allweeks_del_aggr |> 
+              filter(file_rank == 1) |> 
+              select(fs_date) |> 
+              mutate(del_file = TRUE)
+            , by = c('fs_date')
+            ) |> 
+  left_join(sr_wks |> 
+              select(fs_date, season, season_week)
+            , by = ('fs_date')
+            ) |> 
+  select(date = fs_date, season, season_week, snapshot_date, item_unit, sales, del_file)
+
+head(farmigo_del_aggr_cln_wkly |> arrange(item_unit, date))
 
 ```
 
@@ -563,7 +677,11 @@ stopifnot(cell_count_all_item <= 10000000)
 ## to be built
 
 # aggregated delivery date
-## to be built
+cell_count_del_aggr = dim(farmigo_del_aggr_cln_wkly)[1]*dim(farmigo_del_aggr_cln_wkly)[2]
+
+print(paste0('percentage filled to Google Sheets maximum cell count (Delivery Aggregate) ',(cell_count_del_aggr / 10000000)*100, '%'))
+
+stopifnot(cell_count_del_aggr <= 10000000)
 
 ```
 
@@ -596,7 +714,7 @@ sheet_write(farmigo_all_item, sheet_id_farmigo, sheet = "all_items")
 ## to be built
 
 # aggregated delivery date
-## to be built
+sheet_write(farmigo_del_aggr_cln_wkly, sheet_id_farmigo, sheet = "aggregated_deliveries")
 ```
 
 
