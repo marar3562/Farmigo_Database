@@ -21,8 +21,8 @@ library(googlesheets4)
 ### Connection
 
 ```{r include=FALSE}
-gs4_auth(email = "") # , cache = TRUE
-# gs4_auth(cache = ".secrets", email = TRUE, use_oob = TRUE)
+# gs4_auth(email = "") # , cache = TRUE
+gs4_auth(cache = ".secrets", email = TRUE, use_oob = TRUE)
 
 ```
 

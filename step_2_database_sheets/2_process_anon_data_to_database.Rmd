@@ -35,8 +35,8 @@ aggr_del_folder = paste0(main_loc, 'aggregated_deliveries/')
 ### Connection
 
 ```{r}
-gs4_auth(email = "", cache = TRUE)
-# gs4_auth(cache = ".secrets", email = TRUE, use_oob = TRUE)
+# gs4_auth(email = "", cache = TRUE)
+gs4_auth(cache = ".secrets", email = TRUE, use_oob = TRUE)
 
 # sheets_auth()
 # https://stackoverflow.com/questions/44980757/remote-server-authentication-to-read-googlesheets-from-r-script-not-using-servic/59910070#59910070
