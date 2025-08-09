@@ -146,26 +146,10 @@ stopifnot((file_boxbuilder_fs |>
              pull()
             ) > 0 ) 
 
-## ISSUE IN THIS STEP. COLUMN HEADERS AREN'T THE SAME IN ALL FILES. I NEED TO TRANSFORM THE FILE BEFORE JOINING IT TO THE ORIGINAL FILE.
-## takes a bit to run so best to leave as separate table to test/run next few transformations
-test_1 = file_boxbuilder |>
-  filter(rowname_del %in% c(4,5)) |>
-  pull(file_full) |>
-  map_df(~read_csv(.x, col_names = FALSE) , .id = "rowname_del") 
+## THIS PROCESS WORKS BUT THERE SEEMS TO BE A LOT OF DATA ISSUES. I NEED TO DO SOME FURTHER CHECKS ON SOME MORE RECENT WEEKS TO FIGURE OUT WHAT IS GOING ON. I THINK PART OF THE ISSUE IS HOW WE HANDLE CONVERSION OF THE CHARACTER VALUES TO INTEGERS.
 
-
-test_2 = file_boxbuilder |>
-  filter(rowname_del %in% c(4,5)) |>
-  pull(file_full) |>
-  map_df(~read_csv(.x, col_names = FALSE) |> 
-           rownames_to_column() |> 
-           filter(is.na(X1) | X1 == 'Item') |> 
-           
-         , .id = "rowname_del") 
-
-
-test_3 = file_boxbuilder |>
-  filter(rowname_del %in% c(4)) |>
+farmigo_boxbuilder_orig = file_boxbuilder |>
+  # filter(rowname_del %in% c(4,5)) |>
   pull(file_full) |>
   map_df(~bind_rows(cbind(read_csv(.x, col_names = FALSE) |> 
            rownames_to_column() |> 
@@ -190,58 +174,117 @@ test_3 = file_boxbuilder |>
          , .id = "rowname_del") 
 
          
-         
-test_3 |> select(`rowname...1`)
+# 
+# 
+# 
+# test_4 = farmigo_boxbuilder_orig |> 
+#     filter(rowname_del == 1) |>
+#     filter()
+# 
+# 
+#   new_column_names <- farmigo_boxbuilder_orig |> 
+#     filter(rowname_del == 2) |>
+#     slice(1) |>   # Select the first row
+#     as.character() # Convert to a character vector
+# 
+#   new_column_names = replace_na(new_column_names, "remove_variable")
+#   
+#   df_renamed <- farmigo_boxbuilder_orig |> 
+#     filter(rowname_del == 2) |>
+#     slice(-1)   # Remove the first row (the header row)
+#   
+#    names(df_renamed) = new_column_names
+#   
+#    pivot_df = df_renamed |> 
+#     select(-remove_variable) |> 
+#     rename(rowname_del = 2) |> 
+#     pivot_longer(!c('rowname_del', 'Item','Unit'), names_to = "date_subscription", values_to = "count") |> 
+#     mutate(count = as.integer(count)) |> 
+#     filter(count > 0 & !is.na(Item) & item != "_") |> 
+#     separate_wider_delim(date_subscription, delim = "|||", names = c("date","subscription")) |> 
+#     mutate(date = mdy(date)) |> 
+#     arrange(date, subscription, Item) |> 
+#     rename(item = Item, unit = Unit)
 
-test_10 = test[1:nrow(test)-1,] |> 
-  rownames_to_column() |> 
-  filter(is.na(X1) | X1 == 'Item') |> 
-  group_by(rowname) |> 
-  pivot_longer(cols = starts_with("X"))
+
+files = farmigo_boxbuilder_orig |> select(rowname_del) |> distinct() |>  pull()
+
+column_names = c("rowname_del", "item", "unit", "date","subscription", "count")
+
+farmigo_boxbuilder_orig_transposed = tibble(
+  !!!setNames(rep(list(character()), length(column_names)), column_names)
+)
+
+for (i in files) {
   
+  new_column_names <- farmigo_boxbuilder_orig |> 
+    filter(rowname_del == i) |>
+    slice(1) |>   # Select the first row
+    as.character() # Convert to a character vector
 
+  new_column_names = replace_na(new_column_names, "remove_variable")
+  
+  df_renamed <- farmigo_boxbuilder_orig |> 
+    filter(rowname_del == i) |>
+    slice(-1)   # Remove the first row (the header row)
+  
+  names(df_renamed) = new_column_names
+  
+  if("remove_variable" %in% new_column_names) {
+     df_renamed = df_renamed |> 
+       select(-remove_variable)
+  }
+  
+  pivot_df = df_renamed |> 
+    rename(rowname_del = i) |> 
+    pivot_longer(!c('rowname_del', 'Item','Unit'), names_to = "date_subscription", values_to = "count") |> 
+    mutate(count = as.integer(count)) |> 
+    filter(count > 0 & !is.na(Item)) |> 
+    separate_wider_delim(date_subscription, delim = "|||", names = c("date","subscription")) |> 
+    mutate(date = mdy(date)) |> 
+    arrange(date, subscription, Item) |> 
+    rename(item = Item, unit = Unit)
+    
+  
+  farmigo_boxbuilder_orig_transposed = rbind(farmigo_boxbuilder_orig_transposed, pivot_df)
+}
 
-# farmigo_boxbuilder_orig = file_boxbuilder |> 
-#   left_join(file_boxbuilder |> 
-#               pull(file_full) |> 
-#               map_df(~read_csv(.x), .id = "rowname_del")
-#               ## DATA TRANSFORMATION LOGIC NEEDS TO BE ADDED HERE!!!
-#             , by = c('rowname_del')
-#   )
-# 
-# 
-# 
-# farmigo_boxbuilder = farmigo_boxbuilder_orig |> 
-#   mutate(delivery_date = ymd(delivery_date) ) |> 
-#   inner_join(file_boxbuilder_fs |> 
-#                filter(file_rank == 1) |> 
-#                select(rowname_del, snapshot_date
-#                       , fs_date, fs_date_string, fs_date_start, fs_date_end)
-#              , by = c('rowname_del','snapshot_date')
-#   ) |> 
-#   relocate(fs_date, fs_date_string, fs_date_start, fs_date_end) |> 
-#   filter(delivery_date >= fs_date_start & delivery_date <= fs_date_end) |> 
-#   select(-file, -file_full, -start_date, -end_date)
-# 
-# ## error check to make sure a week is not being duplicated by multiple files
-# stopifnot((farmigo_boxbuilder |> 
-#              select(fs_date, rowname_del) |> 
-#              distinct() |> 
-#              group_by(fs_date) |> 
-#              summarise(n = n()) |> 
-#              filter(n > 1) |> 
-#              pull()
-#             ) > 0 )
-# 
-# ## error check to make sure a delivery date is not being duplicated by multiple files
-# stopifnot((farmigo_boxbuilder |> 
-#              select(delivery_date, rowname_del) |> 
-#              distinct() |> 
-#              group_by(delivery_date) |> 
-#              summarise(n = n()) |> 
-#              filter(n > 1) |> 
-#              pull()
-#             ) > 0 )
+test = farmigo_boxbuilder_orig_transposed |> 
+  distinct()
+
+##### DID NOT GET PAST THIS POINT YET SO THE CODE BELOW HAS NOT BEEN CHECKED AT ALL.
+
+farmigo_boxbuilder = farmigo_boxbuilder_orig |>
+  mutate(delivery_date = ymd(delivery_date) ) |>
+  inner_join(file_boxbuilder_fs |>
+               filter(file_rank == 1) |>
+               select(rowname_del, snapshot_date
+                      , fs_date, fs_date_string, fs_date_start, fs_date_end)
+             , by = c('rowname_del','snapshot_date')
+  ) |>
+  relocate(fs_date, fs_date_string, fs_date_start, fs_date_end) |>
+  filter(delivery_date >= fs_date_start & delivery_date <= fs_date_end) |>
+  select(-file, -file_full, -start_date, -end_date)
+
+## error check to make sure a week is not being duplicated by multiple files
+stopifnot((farmigo_boxbuilder |>
+             select(fs_date, rowname_del) |>
+             distinct() |>
+             group_by(fs_date) |>
+             summarise(n = n()) |>
+             filter(n > 1) |>
+             pull()
+            ) > 0 )
+
+## error check to make sure a delivery date is not being duplicated by multiple files
+stopifnot((farmigo_boxbuilder |>
+             select(delivery_date, rowname_del) |>
+             distinct() |>
+             group_by(delivery_date) |>
+             summarise(n = n()) |>
+             filter(n > 1) |>
+             pull()
+            ) > 0 )
 ```
 
 ### Member Deliveries (aka Sales)
