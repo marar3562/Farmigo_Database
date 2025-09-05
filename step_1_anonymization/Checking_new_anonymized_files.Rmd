@@ -1,0 +1,96 @@
+---
+title: "Anonymize csv files"
+output: html_notebook
+---
+
+All files up to date as of 7/4/2025. Potential future updates:
+- Check to see if a file already exists that you are trying to run? Does the anonymized file exist and check that an overwrite is fine.
+- Move the original files to another folder location??
+- Productionize the file (start/end times, secrets file, etc.)
+
+## Libraries
+
+```{r}
+library(tidyverse)
+library(lubridate)
+library(googlesheets4)
+```
+
+
+## Google Drive Data
+
+### Connection
+
+```{r include=FALSE}
+# gs4_auth(email = "") # , cache = TRUE
+gs4_auth(cache = ".secrets", email = TRUE, use_oob = TRUE)
+
+```
+
+
+### Data sets
+
+```{r}
+sheet_id = "194KKu7z0YYAiBHWh4R0D57GGumSyY9Stc_ssCry2uDA"
+
+member_anon_init = range_read(sheet_id, sheet = "members", col_types = 'iccccD')
+
+# member_group_anon_init = range_read(sheet_id, sheet = "groups", col_types = 'iccDD')
+
+remove(sheet_id)
+```
+
+## Payments
+
+```{r}
+payments_test = read.csv('C:/Users/Fair Shares/Downloads/temp_files/payments/2025_08_22__Payments-All Payment Types-Received-05_01_2023--08_22_2025.csv', skip = 8)
+
+```
+
+
+
+```{r}
+payments_clean_test = payments_test |> 
+  rename_with(tolower) |> 
+  rename_with(make.names) |> 
+  mutate(concat_member = paste0(first.name, "||", last.name, "||", email))
+
+
+missing_member_id_payments = payments_clean_test |> 
+  left_join(member_anon_init |> 
+              select(member_id, concat_member)
+            , by = c('concat_member')
+            ) |> 
+  filter(is.na(member_id)) |> 
+  select(first.name, last.name, email, concat_member) |> 
+  distinct()
+
+```
+
+## Member Page
+
+```{r}
+member_page_test = read.csv('C:/Users/Fair Shares/Downloads/temp_files/member_page/2025_08_29__Subscriptions.csv')
+
+```
+
+
+
+```{r}
+member_page_clean_test = member_page_test |> 
+  rename_with(tolower) |> 
+  rename_with(make.names) |> 
+  mutate(concat_member = paste0(first.name, "||", last.name, "||", email))
+
+
+missing_member_id_member_page = member_page_clean_test |> 
+  left_join(member_anon_init |> 
+              select(member_id, concat_member)
+            , by = c('concat_member')
+            ) |> 
+  filter(is.na(member_id)) |> 
+  select(first.name, last.name, email, concat_member) |> 
+  distinct()
+
+```
+
