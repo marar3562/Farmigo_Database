@@ -83,6 +83,7 @@ payments_date = str_sub(payments_loc, dash_start_payments-10, dash_start_payment
 member_page_date = str_sub(member_page_loc, dash_start_member_page-10, dash_start_member_page-1)
 
 del_date_range = str_sub(delivery_loc, str_locate(delivery_loc,'(Quantity)')[1]+9)
+payments_date_range = str_sub(payments_loc, str_locate(payments_loc,'Types-Received')[1]+14)
 
 stopifnot(contact_date == del_date) #making sure the files have the same capture date
 stopifnot(contact_date == payments_date) #making sure the files have the same capture date
@@ -457,7 +458,7 @@ member_page_init = member_page_home_del |>
          ) |> 
   select(-site_length, -name_length, -pickup_detail_v1, -pickup_detail_v2) |> 
   mutate(concat_member = paste0(first.name, "||", last.name, "||", email)) |> 
-  select(last_modified_date = last.modified.date, sign_up = sign.up, subscription, season
+  select(last_modified_date = last.modified.date, sign_up = sign.up, subscription, season_member_page = season
          , pickup_site = pickup.site, city, state, zip
          , balance, payment, issues, status
          , route_name = route.name, payment_plan = payment.plan, discount
@@ -525,7 +526,7 @@ payments_anon = payments_init |>
               , by = c('concat_member')) |>
   # left_join(member_anon_init |>
   #             select(member_id, concat_member)
-  #             , by = c('concat_member')) |> 
+  #             , by = c('concat_member')) |>
   select(-concat_member)
 
 stopifnot(payments_anon |> 
@@ -571,7 +572,7 @@ write.csv(member_page_anon
 
 ```{r}
 write.csv(payments_anon
-          , paste0(repo_location, 'payments/', payments_date, '__payments.csv')
+          , paste0(repo_location, 'payments/', payments_date, '__payments',payments_date_range)
           , row.names = FALSE)
 ```
 

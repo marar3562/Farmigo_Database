@@ -27,6 +27,8 @@ items_folder = paste0(main_loc, 'items/')
 backup_inv_folder = paste0(main_loc, 'backup_inventory_upload/') 
 subscriptions_folder = paste0(main_loc, 'subscriptions/') 
 aggr_del_folder = paste0(main_loc, 'aggregated_deliveries/') 
+member_page_folder = paste0(main_loc, 'member_page/') 
+payments_folder = paste0(main_loc, 'payments/') 
 
 ```
 
@@ -110,6 +112,64 @@ farmigo_member_history = farmigo_member_orig |>
 
 # head(farmigo_member_orig)
 ```
+
+### Member Page Information
+
+This is different from the Member Information above. This includes extra information like Balance amounts.
+
+```{r}
+file_master_member_page = list.files(member_page_folder) |> 
+  as_tibble() |> 
+  rename(file = value) |>
+  mutate(file_full = paste0(member_page_folder,file)
+         , snapshot_date = ymd(str_sub(file,0,10))
+         ) |> 
+  arrange(snapshot_date) |> 
+  rownames_to_column() |> 
+  rename(rowname_itm = rowname)
+
+## join files to FS dates
+file_master_member_page_fs = file_master_member_page |> 
+  full_join(sr_wks, by = character()) |> 
+  filter(snapshot_date >= fs_date_start & snapshot_date <= fs_date_end) |> 
+  group_by(fs_date) |> 
+  arrange(fs_date, desc(snapshot_date)) |> 
+  mutate(file_rank = rank(desc(snapshot_date))) |> 
+  ungroup() |> 
+  filter(file_rank == 1) |> 
+  select(-file_rank)
+
+## error check to make sure only one file selected
+stopifnot((file_master_member_page_fs |> 
+             group_by(fs_date) |> 
+             summarise(n = n()) |> 
+             filter(n > 1) |> 
+             pull()
+            ) > 0 )
+
+## takes a bit to run so best to leave as separate table to test/run next few transformations
+farmigo_member_page_orig = file_master_member_page_fs |> 
+  left_join(file_master_member_page |> 
+              pull(file_full) |> 
+              map_df(~read_csv(.x), .id = "rowname_itm") |> 
+              rename_all(tolower) |> 
+              select_all(list(~gsub(" ", "_", .)))
+            , by = c('rowname_itm')
+  )
+
+farmigo_member_page_history = farmigo_member_page_orig |> 
+  select(date = fs_date, season, season_week, snapshot_date, member_id
+         , last_modified_date, sign_up, subscription, season_member_page
+         , pickup_site, city, state, zip
+         , balance, payment, issues, status
+         , route_name, payment_plan, discount
+         , future_pending_payments, future_deliveries
+         , first_delivery_date, last_delivery_date
+         , coupon_id)
+
+# head(farmigo_member_page_history)
+```
+
 
 ### Box Builder (Weekly Shares Items)
 
@@ -780,6 +840,98 @@ head(farmigo_del_aggr_cln_wkly |> arrange(item_unit, date))
 ```
 
 
+### Payments
+
+```{r eval=FALSE, include=FALSE}
+file_master_payments = list.files(payments_folder) |> 
+  as_tibble() |> 
+  rename(file = value) |>
+  mutate(file_full = paste0(payments_folder,file)
+         , first_dash = str_locate(file,'-')[1]
+         , start_date = mdy(str_sub(file, first_dash+1, first_dash+11))
+         , end_date = mdy(str_sub(file, first_dash+12, first_dash+23))
+         , snapshot_date = ymd(str_sub(file,0,10))
+         ) |> 
+  select(-first_dash) |> 
+  filter(start_date < end_date) |> #test to make sure no odd files
+  rownames_to_column() |> 
+  rename(rowname_del = rowname)
+
+
+file_master_payments_page = file_master_payments |> 
+  full_join(sr_wks, by = character()) |> 
+  filter(fs_date >= start_date & fs_date <= end_date) |> 
+  group_by(fs_date) |> 
+  arrange(fs_date, desc(snapshot_date)) |> 
+  mutate(file_rank = rank(desc(snapshot_date))) |> 
+  ungroup()
+
+
+## error check (cannot have more than one file week associated with a week of data)
+stopifnot((file_master_payments_page |> 
+             filter(file_rank == 1) |> 
+             group_by(fs_date) |> 
+             summarise(n = n()) |> 
+             filter(n > 1) |> 
+             pull()
+            ) > 0 ) 
+
+## takes a bit to run so best to leave as separate table to test/run next few transformations
+farmigo_payments_orig = file_master_payments |> 
+  left_join(file_master_payments |> 
+              pull(file_full) |> 
+              map_df(~read_csv(.x), .id = "rowname_del")
+            , by = c('rowname_del')
+  )
+
+##### LOTS OF ISSUES WITH DATES HERE... NEED TO FIGURE THIS OUT.
+farmigo_payments_orig_join = farmigo_payments_orig |> 
+  mutate(date_time_pull = str_replace_all(str_sub(date_time,0,10),"/","-")
+         , date_time_1 = mdy(str_sub(date_time,0,10))
+         , date_time_2 = mdy(str_sub(date_time,0,8))
+         , date_time_3 = ymd(date_time_pull)
+         ) |> 
+  inner_join(file_master_payments_page |> 
+               filter(file_rank == 1) |> 
+               select(rowname_del, snapshot_date
+                      , fs_date, fs_date_string, fs_date_start, fs_date_end, season, season_week)
+             , by = c('rowname_del','snapshot_date')
+  ) |> 
+  relocate(fs_date, fs_date_string, fs_date_start, fs_date_end) |> 
+  filter(date_time >= fs_date_start & date_time <= fs_date_end)
+
+
+## error check to make sure a week is not being duplicated by multiple files
+stopifnot((farmigo_payments_orig_join |> 
+             select(fs_date, rowname_del) |> 
+             distinct() |> 
+             group_by(fs_date) |> 
+             summarise(n = n()) |> 
+             filter(n > 1) |> 
+             pull()
+            ) > 0 )
+
+## error check to make sure a delivery date is not being duplicated by multiple files
+stopifnot((farmigo_payments_orig_join |> 
+             select(date_time, rowname_del) |> 
+             distinct() |> 
+             group_by(date_time) |> 
+             summarise(n = n()) |> 
+             filter(n > 1) |> 
+             pull()
+            ) > 0 )
+
+farmigo_payments = farmigo_payments_orig_join |> 
+  select(date = fs_date, season, season_week, snapshot_date, delivery_date, member_id, ...)
+  # select(-file, -file_full, -start_date, -end_date) 
+
+
+# farmigo_del_cln_check = farmigo_memb_del |> 
+#   filter(member_id %in% c(99,467)) |> 
+#   arrange(fs_date, member_id, item_unit)
+
+```
+
 ## Google Sheet Data Limit Check
 
 Google sheets has a cell limit of 10Million. I should build in checks to all large data sets, like this a check for row/column size, multiplied by each other, to show a percentage of that 10 Million limit. 
@@ -823,6 +975,20 @@ print(paste0('percentage filled to Google Sheets maximum cell count (Delivery Ag
 
 stopifnot(cell_count_del_aggr <= 10000000)
 
+# member page
+cell_count_del_member_page = dim(farmigo_member_page_history)[1]*dim(farmigo_member_page_history)[2]
+
+print(paste0('percentage filled to Google Sheets maximum cell count (Member Page) ',(cell_count_del_member_page / 10000000)*100, '%'))
+
+stopifnot(cell_count_del_member_page <= 10000000)
+
+# payments
+cell_count_del_aggr = dim(farmigo_del_aggr_cln_wkly)[1]*dim(farmigo_del_aggr_cln_wkly)[2]
+
+print(paste0('percentage filled to Google Sheets maximum cell count (Delivery Aggregate) ',(cell_count_del_aggr / 10000000)*100, '%'))
+
+stopifnot(cell_count_del_aggr <= 10000000)
+
 ```
 
 
@@ -854,6 +1020,12 @@ sheet_write(farmigo_all_item, sheet_id_farmigo, sheet = "all_items")
 
 # all subscriptions
 sheet_write(farmigo_all_subscr_final, sheet_id_farmigo, sheet = "all_subscriptions")
+
+# aggregated delivery date
+sheet_write(farmigo_del_aggr_cln_wkly, sheet_id_farmigo, sheet = "aggregated_deliveries")
+
+# member page
+sheet_write(farmigo_member_page_history, sheet_id_farmigo, sheet = "member_page")
 
 # aggregated delivery date
 sheet_write(farmigo_del_aggr_cln_wkly, sheet_id_farmigo, sheet = "aggregated_deliveries")
