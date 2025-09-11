@@ -1,4 +1,4 @@
-"date_time","season_payments","type","date_of_payment","amount","notes","file_date","member_id"
+"date_time","season","type","date_of_payment","amount","notes","file_date","member_id"
 "1/16/2025 3:41","Combined CSA","Credit Card","16-Jan-25",60.32,NA,2025-08-22,456
 "1/18/2025 3:40","Combined CSA","Credit Card","18-Jan-25",9.310001,NA,2025-08-22,456
 "1/17/2025 14:46","Combined CSA","Fee","17-Jan-25",-9.31,"WK 42: ground chicken",2025-08-22,456

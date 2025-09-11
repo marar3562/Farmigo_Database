@@ -158,6 +158,11 @@ farmigo_member_page_orig = file_master_member_page_fs |>
   )
 
 farmigo_member_page_history = farmigo_member_page_orig |> 
+  mutate(last_modified_date = mdy_hm(last_modified_date)
+          , sign_up = mdy(sign_up)
+          , first_delivery_date = mdy(first_delivery_date)
+          , last_delivery_date = mdy(last_delivery_date)
+           ) |> 
   select(date = fs_date, season, season_week, snapshot_date, member_id
          , last_modified_date, sign_up, subscription, season_member_page
          , pickup_site, city, state, zip
@@ -842,7 +847,7 @@ head(farmigo_del_aggr_cln_wkly |> arrange(item_unit, date))
 
 ### Payments
 
-```{r eval=FALSE, include=FALSE}
+```{r}
 file_master_payments = list.files(payments_folder) |> 
   as_tibble() |> 
   rename(file = value) |>
@@ -884,13 +889,27 @@ farmigo_payments_orig = file_master_payments |>
             , by = c('rowname_del')
   )
 
-##### LOTS OF ISSUES WITH DATES HERE... NEED TO FIGURE THIS OUT.
 farmigo_payments_orig_join = farmigo_payments_orig |> 
-  mutate(date_time_pull = str_replace_all(str_sub(date_time,0,10),"/","-")
-         , date_time_1 = mdy(str_sub(date_time,0,10))
-         , date_time_2 = mdy(str_sub(date_time,0,8))
-         , date_time_3 = ymd(date_time_pull)
+  filter(snapshot_date <= '2025-08-22') |> 
+  mutate(date_time_short = str_sub(date_time,0,str_locate(date_time, " ")[,1])
+         , time_short = trimws(str_sub(date_time,str_locate(date_time, " ")[,1],length(date_time)))
+         , date_time_new = mdy_hm(paste(date_time_short,time_short))
+         , date_of_payment_new = dmy(date_of_payment)
          ) |> 
+  select(rowname_del, file, file_full, start_date, end_date, snapshot_date
+         , date_time = date_time_new, season_payments, type, date_of_payment = date_of_payment_new
+         , amount, notes, file_date, member_id) |> 
+  rbind(farmigo_payments_orig |> 
+    filter(snapshot_date > '2025-08-22') |> 
+    mutate(date_time_short = str_sub(date_time,0,str_locate(date_time, " ")[,1])
+           , time_short = trimws(str_sub(date_time,str_locate(date_time, " ")[,1],length(date_time)))
+           , date_time_new = ymd_hm(paste(date_time_short,time_short))
+           , date_of_payment_new = mdy(date_of_payment)
+           ) |> 
+    select(rowname_del, file, file_full, start_date, end_date, snapshot_date
+           , date_time = date_time_new, season_payments, type, date_of_payment = date_of_payment_new
+           , amount, notes, file_date, member_id)
+  ) |> 
   inner_join(file_master_payments_page |> 
                filter(file_rank == 1) |> 
                select(rowname_del, snapshot_date
@@ -899,8 +918,7 @@ farmigo_payments_orig_join = farmigo_payments_orig |>
   ) |> 
   relocate(fs_date, fs_date_string, fs_date_start, fs_date_end) |> 
   filter(date_time >= fs_date_start & date_time <= fs_date_end)
-
-
+  
 ## error check to make sure a week is not being duplicated by multiple files
 stopifnot((farmigo_payments_orig_join |> 
              select(fs_date, rowname_del) |> 
@@ -922,9 +940,9 @@ stopifnot((farmigo_payments_orig_join |>
             ) > 0 )
 
 farmigo_payments = farmigo_payments_orig_join |> 
-  select(date = fs_date, season, season_week, snapshot_date, delivery_date, member_id, ...)
-  # select(-file, -file_full, -start_date, -end_date) 
-
+  select(date = fs_date, season, season_week, snapshot_date
+         , date_time, member_id, season_payments, type, date_of_payment
+         , amount, notes)
 
 # farmigo_del_cln_check = farmigo_memb_del |> 
 #   filter(member_id %in% c(99,467)) |> 
@@ -983,23 +1001,22 @@ print(paste0('percentage filled to Google Sheets maximum cell count (Member Page
 stopifnot(cell_count_del_member_page <= 10000000)
 
 # payments
-cell_count_del_aggr = dim(farmigo_del_aggr_cln_wkly)[1]*dim(farmigo_del_aggr_cln_wkly)[2]
+cell_count_payments = dim(farmigo_payments)[1]*dim(farmigo_payments)[2]
 
-print(paste0('percentage filled to Google Sheets maximum cell count (Delivery Aggregate) ',(cell_count_del_aggr / 10000000)*100, '%'))
+print(paste0('percentage filled to Google Sheets maximum cell count (Payments) ',(cell_count_payments / 10000000)*100, '%'))
 
-stopifnot(cell_count_del_aggr <= 10000000)
+stopifnot(cell_count_payments <= 10000000)
 
 ```
 
 
 ## Upload Data Sets
 
-
 ### sheet id
+
 ```{r}
 sheet_id_farmigo = "1W34-fLMAWPt5VvWb6kiVxWPikgn0Ly2e6JjhQIOmsF4"
 ```
-
 
 ### Upload
 
@@ -1012,8 +1029,6 @@ sheet_write(farmigo_member_history, sheet_id_farmigo, sheet = "member_group_hist
 
 # member deliveries
 sheet_write(farmigo_memb_del, sheet_id_farmigo, sheet = "sales_deliveries")
-
-
 
 # all items
 sheet_write(farmigo_all_item, sheet_id_farmigo, sheet = "all_items")
@@ -1029,6 +1044,10 @@ sheet_write(farmigo_member_page_history, sheet_id_farmigo, sheet = "member_page"
 
 # aggregated delivery date
 sheet_write(farmigo_del_aggr_cln_wkly, sheet_id_farmigo, sheet = "aggregated_deliveries")
+
+# payments
+sheet_write(farmigo_payments, sheet_id_farmigo, sheet = "payments")
+
 ```
 
 
@@ -1039,5 +1058,6 @@ end_time = Sys.time()
 
 start_time
 end_time
+
 ```
 

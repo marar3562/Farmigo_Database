@@ -1,4 +1,4 @@
-"date_time","season_payments","type","date_of_payment","amount","notes","file_date","member_id"
+"date_time","season","type","date_of_payment","amount","notes","file_date","member_id"
 "2025/08/20 18:18","Combined CSA","Complimentary","Aug 20, 2025",0,"WK 21: returned 2 jars, deducted extras",2025-08-29,31
 "2025/08/28 17:50","Combined CSA","Complimentary","Aug 28, 2025",0,"wk 22 returned 1 jar, deducted from purchases.",2025-08-29,31
 "2025/08/28 03:45","Combined CSA","Credit Card","Aug 28, 2025",300,NA,2025-08-29,1846

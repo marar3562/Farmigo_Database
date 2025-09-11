@@ -517,7 +517,7 @@ payments_init = payments_home_del |>
          ) |> 
   select(-site_length, -name_length, -pickup_detail_v1, -pickup_detail_v2) |> 
   mutate(concat_member = paste0(first.name, "||", last.name, "||", email)) |> 
-  select(date_time = date...time, season, type, 
+  select(date_time = date...time, season_payments = season, type, 
          date_of_payment = date.of.payment, amount, notes, file_date, concat_member) 
 
 payments_anon = payments_init |> 
