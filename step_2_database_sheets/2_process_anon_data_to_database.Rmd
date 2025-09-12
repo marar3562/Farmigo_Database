@@ -150,6 +150,7 @@ stopifnot((file_master_member_page_fs |>
 ## takes a bit to run so best to leave as separate table to test/run next few transformations
 farmigo_member_page_orig = file_master_member_page_fs |> 
   left_join(file_master_member_page |> 
+              # filter(rowname_itm %in% c(3)) |> 
               pull(file_full) |> 
               map_df(~read_csv(.x), .id = "rowname_itm") |> 
               rename_all(tolower) |> 
@@ -158,11 +159,6 @@ farmigo_member_page_orig = file_master_member_page_fs |>
   )
 
 farmigo_member_page_history = farmigo_member_page_orig |> 
-  mutate(last_modified_date = mdy_hm(last_modified_date)
-          , sign_up = mdy(sign_up)
-          , first_delivery_date = mdy(first_delivery_date)
-          , last_delivery_date = mdy(last_delivery_date)
-           ) |> 
   select(date = fs_date, season, season_week, snapshot_date, member_id
          , last_modified_date, sign_up, subscription, season_member_page
          , pickup_site, city, state, zip
@@ -1041,9 +1037,6 @@ sheet_write(farmigo_del_aggr_cln_wkly, sheet_id_farmigo, sheet = "aggregated_del
 
 # member page
 sheet_write(farmigo_member_page_history, sheet_id_farmigo, sheet = "member_page")
-
-# aggregated delivery date
-sheet_write(farmigo_del_aggr_cln_wkly, sheet_id_farmigo, sheet = "aggregated_deliveries")
 
 # payments
 sheet_write(farmigo_payments, sheet_id_farmigo, sheet = "payments")

@@ -464,15 +464,25 @@ member_page_init = member_page_home_del |>
          , route_name = route.name, payment_plan = payment.plan, discount
          , future_pending_payments = future.pending.payments, future_deliveries = future.deliveries
          , first_delivery_date = first.delivery.date, last_delivery_date = last.delivery.date
-         , coupon_id = coupon.id, file_date, concat_member) 
+         , coupon_id = coupon.id, file_date, concat_member) |> 
+  mutate(last_modified_date = ymd_hms(last_modified_date)
+          , sign_up = ymd(sign_up)
+          , first_delivery_date = ymd(first_delivery_date)
+          , last_delivery_date = ymd(last_delivery_date)
+           )
+  # mutate(last_modified_date = mdy_hm(last_modified_date)
+  #         , sign_up = mdy(sign_up)
+  #         , first_delivery_date = mdy(first_delivery_date)
+  #         , last_delivery_date = mdy(last_delivery_date)
+  #          )
 
 member_page_anon = member_page_init |> 
-  left_join(members_anon_new |>
+  left_join(member_anon_new |>
               select(member_id, concat_member)
               , by = c('concat_member')) |>
   # left_join(member_anon_init |>
   #             select(member_id, concat_member)
-  #             , by = c('concat_member')) |> 
+  #             , by = c('concat_member')) |>
   select(-concat_member)
 
 
@@ -521,7 +531,7 @@ payments_init = payments_home_del |>
          date_of_payment = date.of.payment, amount, notes, file_date, concat_member) 
 
 payments_anon = payments_init |> 
-  left_join(members_anon_new |>
+  left_join(member_anon_new |>
               select(member_id, concat_member)
               , by = c('concat_member')) |>
   # left_join(member_anon_init |>
