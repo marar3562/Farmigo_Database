@@ -1,7 +1,7 @@
 # Farmigo_Database
 Farmigo is Fair Share's Point of Sale (PoS) system for members. It contains critical information for the organizaiton, like customer information, item information, which items start in member shares (boxbuilder), etc. This repo was created to collect Farmigo data to support additional customer specific insights and more granular insights about business operations. Farmigo data has been processed in a few repos but to be consistent it would be best to have a single source of truth that all dashboards pull from. 
 
-![alt text](process_image.png "Stepped Process for Frrmigo Data Process")
+![alt text](process_image.PNG "Stepped Process for Farmigo Data Process")
 
 ## Requirements
 
