@@ -6,9 +6,7 @@ output: html_notebook
 All files up to date as of 7/4/2025. Potential future updates:
 - Check to see if a file already exists that you are trying to run? Does the anonymized file exist and check that an overwrite is fine.
 - Move the original files to another folder location??
-- Productionize the file (start/end times,
-
-secrets file, etc.)
+- Productionize the file (start/end times, secrets file, etc.)
 
 ## Libraries
 
