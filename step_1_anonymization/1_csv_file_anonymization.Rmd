@@ -29,7 +29,8 @@ gs4_auth(cache = ".secrets", email = TRUE, use_oob = TRUE)
 ### Data sets
 
 ```{r}
-sheet_id = "194KKu7z0YYAiBHWh4R0D57GGumSyY9Stc_ssCry2uDA"
+# sheet_id = "194KKu7z0YYAiBHWh4R0D57GGumSyY9Stc_ssCry2uDA" #original source
+sheet_id = "1BgaYDJZndIycyol3B9EXJ1Gxt2dyLZ7_ar2jB5VUKvM" #personal
 
 member_anon_init = range_read(sheet_id, sheet = "members", col_types = 'iccccD')
 
@@ -254,7 +255,8 @@ stopifnot((member_anon_new |>
 
 # only uncomment this when this process is fully ready...
 
-sheet_id = "194KKu7z0YYAiBHWh4R0D57GGumSyY9Stc_ssCry2uDA"
+# sheet_id = "194KKu7z0YYAiBHWh4R0D57GGumSyY9Stc_ssCry2uDA" #original source
+sheet_id = "1BgaYDJZndIycyol3B9EXJ1Gxt2dyLZ7_ar2jB5VUKvM" #personal
 
 sheet_write(member_anon_new, sheet_id, sheet = "members")
 
@@ -552,8 +554,9 @@ stopifnot(payments_anon |>
 ### Member Contact Information
 
 ```{r}
-repo_location = 'C:/Users/Fair Shares/Documents/_ds_fairshares/Farmigo_Database/step_1_anonymization/Raw/'
+# repo_location = 'C:/Users/Fair Shares/Documents/_ds_fairshares/Farmigo_Database/step_1_anonymization/Raw/'
 ## repo_location = 'C:/Users/Fair Shares/Documents/_ds_fairshares/Farmigo_Database/step_1_anonymization/Raw/'
+ repo_location = 'C:/Users/rmarg/OneDrive/Documents/R/_ds_fairshares/Data/Farmigo_Database/step_1_anonymization/Raw/'
 
 write.csv(members_anon
           , paste0(repo_location, 'contacts/', contact_date, '__member_contact_info_all.csv')
