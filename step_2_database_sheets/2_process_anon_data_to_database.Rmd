@@ -18,8 +18,8 @@ library(googlesheets4)
 start_time = Sys.time()
 
 # main_loc = 'C:/Users/RM/Documents/_ds_fairshares/Farmigo_Database/step_1_anonymization/Raw/'
-# main_loc = 'C:/Users/Fair Shares/Documents/_ds_fairshares/Farmigo_Database/step_1_anonymization/Raw/'
-main_loc = 'C:/Users/rmarg/OneDrive/Documents/R/_ds_fairshares/Data/Farmigo_Database/step_1_anonymization/Raw/'
+main_loc = 'C:/Users/Fair Shares/Documents/_ds_fairshares/Farmigo_Database/step_1_anonymization/Raw/'
+# main_loc = 'C:/Users/rmarg/OneDrive/Documents/R/_ds_fairshares/Data/Farmigo_Database/step_1_anonymization/Raw/'
 
 mem_del_folder = paste0(main_loc, 'member_deliveries/')
 boxb_folder = paste0(main_loc, 'box_builder/') 
@@ -51,8 +51,8 @@ gs4_auth(cache = ".secrets", email = TRUE, use_oob = TRUE)
 start_time = Sys.time()
 
 
-sr = range_read( #"1xs8TAMrSsJuL_gou4y0DBH3IkaTH0eBn_pdboCGWFTI" #original source
-                "1l-K0Ws5GYGcgsJssUNzhPXtoGg_EuoXHUTPcC1MT35Y" #personal
+sr = range_read("1xs8TAMrSsJuL_gou4y0DBH3IkaTH0eBn_pdboCGWFTI" #original source
+                #"1l-K0Ws5GYGcgsJssUNzhPXtoGg_EuoXHUTPcC1MT35Y" #personal
                 ,sheet = 'share_rotation'
                 ,col_types = 'Dicicncc'
 )
@@ -1013,8 +1013,8 @@ stopifnot(cell_count_payments <= 10000000)
 ### sheet id
 
 ```{r}
-# sheet_id_farmigo = "1W34-fLMAWPt5VvWb6kiVxWPikgn0Ly2e6JjhQIOmsF4" #original source
-sheet_id_farmigo = "1c6KxrIaysQPnSsAqWCMxBkKXAWvgiWw57V2VhUdMI5c" #personal
+sheet_id_farmigo = "1W34-fLMAWPt5VvWb6kiVxWPikgn0Ly2e6JjhQIOmsF4" #original source
+# sheet_id_farmigo = "1c6KxrIaysQPnSsAqWCMxBkKXAWvgiWw57V2VhUdMI5c" #personal
 ```
 
 ### Upload
