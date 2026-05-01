@@ -255,8 +255,8 @@ stopifnot((member_anon_new |>
 
 # only uncomment this when this process is fully ready...
 
-# sheet_id = "194KKu7z0YYAiBHWh4R0D57GGumSyY9Stc_ssCry2uDA" #original source
-sheet_id = "1BgaYDJZndIycyol3B9EXJ1Gxt2dyLZ7_ar2jB5VUKvM" #personal
+sheet_id = "194KKu7z0YYAiBHWh4R0D57GGumSyY9Stc_ssCry2uDA" #original source
+# sheet_id = "1BgaYDJZndIycyol3B9EXJ1Gxt2dyLZ7_ar2jB5VUKvM" #personal
 
 sheet_write(member_anon_new, sheet_id, sheet = "members")
 
