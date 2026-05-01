@@ -665,6 +665,30 @@ inv_comb = inv_all_itm |>
 farmigo_all_item = inv_comb |> 
   select(date = fs_date, season, season_week, snapshot_date, file_status, item, category, start_available = start_inv,
          price, status, producer, unit_quantity, unit, max_per_member)
+
+farmigo_all_item_cnt <- farmigo_all_item |> 
+             summarise(n = n()) |> 
+             pull()
+
+farmigo_all_item_pre_s19 <- farmigo_all_item |> 
+  filter(date <= '2026-03-01')
+
+farmigo_all_item_pre_s19_cnt <- farmigo_all_item_pre_s19 |> 
+             summarise(n = n()) |> 
+             pull()
+
+farmigo_all_item_s19_forward <- farmigo_all_item |> 
+  filter(date >= '2026-03-01')
+
+farmigo_all_item_s19_forward_cnt <- farmigo_all_item_s19_forward |> 
+             summarise(n = n()) |> 
+             pull()
+
+stopifnot((farmigo_all_item_cnt) ==  
+            (farmigo_all_item_pre_s19_cnt
+             +
+             farmigo_all_item_s19_forward_cnt)
+          )
 ```
 
 
@@ -977,6 +1001,13 @@ print(paste0('percentage filled to Google Sheets maximum cell count (All Items) 
 
 stopifnot(cell_count_all_item <= 10000000)
 
+# all items - s19 forward
+cell_count_all_item_s19_forward = dim(farmigo_all_item_s19_forward)[1]*dim(farmigo_all_item_s19_forward)[2]
+
+print(paste0('percentage filled to Google Sheets maximum cell count (All Items s19 forward) ',(cell_count_all_item_s19_forward / 10000000)*100, '%'))
+
+stopifnot(cell_count_all_item_s19_forward <= 10000000)
+
 # all subscriptions
 cell_count_all_subscr = dim(farmigo_all_subscr_final)[1]*dim(farmigo_all_subscr_final)[2]
 
@@ -1033,7 +1064,9 @@ sheet_write(farmigo_member_history, sheet_id_farmigo, sheet = "member_group_hist
 sheet_write(farmigo_memb_del, sheet_id_farmigo, sheet = "sales_deliveries")
 
 # all items
-sheet_write(farmigo_all_item, sheet_id_farmigo, sheet = "all_items")
+# sheet_write(farmigo_all_item, sheet_id_farmigo, sheet = "all_items")
+# sheet_write(farmigo_all_item_pre_s19, sheet_id_farmigo, sheet = "all_items_pre_s19")
+sheet_write(farmigo_all_item_s19_forward, sheet_id_farmigo, sheet = "all_items_s19_forward")
 
 # all subscriptions
 sheet_write(farmigo_all_subscr_final, sheet_id_farmigo, sheet = "all_subscriptions")
