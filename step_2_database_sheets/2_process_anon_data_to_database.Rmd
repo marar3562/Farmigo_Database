@@ -608,9 +608,10 @@ inv_upld = inv_upld_all_itm |>
                                   pull()
                          )
          ) |> 
-  union_all(file_master_inv |> 
-        filter(file_status == 'upload file' & 
-                 fs_date %in% c(inv_upld_all_itm |> 
+  union_all(
+    ##new logic
+    inv_upld_all_itm |> 
+              filter(fs_date %in% c(inv_upld_all_itm |> 
                                   select(fs_date, file_status) |> 
                                   distinct() |> 
                                   group_by(fs_date) |> 
@@ -618,18 +619,32 @@ inv_upld = inv_upld_all_itm |>
                                   filter(n == 1) |> 
                                   select(fs_date) |> 
                                   pull()
-                   )
-               ) |> 
-        left_join(farmigo_upld_orig |> 
-                    mutate(inv_usable = NA, avail = available) |> 
-                    select(-fs_date, -fs_date_string, -season, -season_week, -fs_date_start, -fs_date_end, inv_usable, -available) |> 
-                    relocate(item, .after = last_col())
-                  , by = c('rowname_upld')
-                  ) |> 
-    mutate(category = NA, additional_categories = NA, available = avail, price = NA, status = NA, producer = NA, title_spanish = NA,
-           unit_quantity = NA, unit = NA, is_credit = NA, pack_separately = NA, max_per_member = NA, image_url = NA,
-           description = NA, link = NA, weight = NA, label = NA, upload = avail) |> 
-    select(-avail)
+                         )
+         ) |> 
+        mutate(upload = ifelse(!is.na(upload), upload, available)) 
+    ##original logic
+    # file_master_inv |> 
+    #     filter(file_status == 'upload file' & 
+    #              fs_date %in% c(inv_upld_all_itm |> 
+    #                               select(fs_date, file_status) |> 
+    #                               distinct() |> 
+    #                               group_by(fs_date) |> 
+    #                               summarise(n = n()) |> 
+    #                               filter(n == 1) |> 
+    #                               select(fs_date) |> 
+    #                               pull()
+    #                )
+    #            ) |> 
+    #     left_join(farmigo_upld_orig |> 
+    #                 mutate(inv_usable = NA, avail = available) |> 
+    #                 select(-fs_date, -fs_date_string, -season, -season_week, -fs_date_start, -fs_date_end, inv_usable, -available) |> 
+    #                 relocate(item, .after = last_col())
+    #               , by = c('rowname_upld')
+    #               ) |> 
+    # mutate(category = NA, additional_categories = NA, available = avail, price = NA, status = NA, producer = NA, title_spanish = NA,
+    #        unit_quantity = NA, unit = NA, is_credit = NA, pack_separately = NA, max_per_member = NA, image_url = NA,
+    #        description = NA, link = NA, weight = NA, label = NA, upload = avail) |> 
+    # select(-avail)
   ) |> 
   union_all(inv_all_itm_no_inv |> 
               mutate(upload = available))
@@ -646,18 +661,18 @@ inv_comb = inv_all_itm |>
 
 ## Checking to make sure value look similar and data not being excluded
 ## >= 100 filter to get rid of items we assume we have an unlimited supply of
-# inv_comb |> 
-#   group_by(fs_date) |> 
+# inv_comb |>
+#   group_by(fs_date) |>
 #   summarise(n = n(),
 #             start_inv = sum(ifelse(start_inv >= 100, 0, start_inv), na.rm=TRUE))
 # 
-# farmigo_upld_orig |> 
-#   group_by(fs_date) |> 
+# farmigo_upld_orig |>
+#   group_by(fs_date) |>
 #   summarise(n = n(),
 #             start_inv = sum(ifelse(available >= 100, 0, available), na.rm=TRUE))
 # 
-# farmigo_itm_orig |> 
-#   group_by(fs_date) |> 
+# farmigo_itm_orig |>
+#   group_by(fs_date) |>
 #   summarise(n = n(),
 #             start_inv = sum(ifelse(available >= 100, 0, available), na.rm=TRUE))
 
