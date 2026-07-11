@@ -1118,6 +1118,7 @@ sheet_write(farmigo_all_item_s19_forward, sheet_id_farmigo_all_item, sheet = "al
 
 ```{r}
 rm(sheet_id_farmigo)
+rm(sheet_id_farmigo_all_item)
 
 end_time = Sys.time()
 
