@@ -927,26 +927,17 @@ farmigo_payments_orig = file_master_payments |>
   )
 
 farmigo_payments_orig_join = farmigo_payments_orig |> 
-  filter(snapshot_date <= '2025-08-22') |> 
   mutate(date_time_short = str_sub(date_time,0,str_locate(date_time, " ")[,1])
          , time_short = trimws(str_sub(date_time,str_locate(date_time, " ")[,1],length(date_time)))
          , date_time_new = mdy_hm(paste(date_time_short,time_short))
-         , date_of_payment_new = dmy(date_of_payment)
+         , date_of_payment_new_a = dmy(date_of_payment)
+         , date_of_payment_new_b = mdy(date_of_payment)
+         , date_of_payment_new = case_when(is.na(date_of_payment_new_a) ~ date_of_payment_new_b
+                                           , TRUE ~ date_of_payment_new_a)
          ) |> 
   select(rowname_del, file, file_full, start_date, end_date, snapshot_date
-         , date_time = date_time_new, season_payments, type, date_of_payment = date_of_payment_new
-         , amount, notes, file_date, member_id) |> 
-  rbind(farmigo_payments_orig |> 
-    filter(snapshot_date > '2025-08-22') |> 
-    mutate(date_time_short = str_sub(date_time,0,str_locate(date_time, " ")[,1])
-           , time_short = trimws(str_sub(date_time,str_locate(date_time, " ")[,1],length(date_time)))
-           , date_time_new = ymd_hm(paste(date_time_short,time_short))
-           , date_of_payment_new = mdy(date_of_payment)
-           ) |> 
-    select(rowname_del, file, file_full, start_date, end_date, snapshot_date
            , date_time = date_time_new, season_payments, type, date_of_payment = date_of_payment_new
-           , amount, notes, file_date, member_id)
-  ) |> 
+           , amount, notes, file_date, member_id) |> 
   inner_join(file_master_payments_page |> 
                filter(file_rank == 1) |> 
                select(rowname_del, snapshot_date
@@ -955,6 +946,36 @@ farmigo_payments_orig_join = farmigo_payments_orig |>
   ) |> 
   relocate(fs_date, fs_date_string, fs_date_start, fs_date_end) |> 
   filter(date_time >= fs_date_start & date_time <= fs_date_end)
+
+# farmigo_payments_orig_join = farmigo_payments_orig |> 
+#   filter(snapshot_date <= '2025-08-22') |> 
+#   mutate(date_time_short = str_sub(date_time,0,str_locate(date_time, " ")[,1])
+#          , time_short = trimws(str_sub(date_time,str_locate(date_time, " ")[,1],length(date_time)))
+#          , date_time_new = mdy_hm(paste(date_time_short,time_short))
+#          , date_of_payment_new = dmy(date_of_payment)
+#          ) |> 
+#   select(rowname_del, file, file_full, start_date, end_date, snapshot_date
+#          , date_time = date_time_new, season_payments, type, date_of_payment = date_of_payment_new
+#          , amount, notes, file_date, member_id) |> 
+#   rbind(t = farmigo_payments_orig |> 
+#     filter(snapshot_date > '2025-08-22') |> 
+#     mutate(date_time_short = str_sub(date_time,0,str_locate(date_time, " ")[,1])
+#            , time_short = trimws(str_sub(date_time,str_locate(date_time, " ")[,1],length(date_time)))
+#            , date_time_new = ymd_hm(paste(date_time_short,time_short))
+#            , date_of_payment_new = mdy(date_of_payment)
+#            ) |> 
+#     select(rowname_del, file, file_full, start_date, end_date, snapshot_date
+#            , date_time = date_time_new, season_payments, type, date_of_payment = date_of_payment_new
+#            , amount, notes, file_date, member_id)
+#   ) |> 
+#   inner_join(file_master_payments_page |> 
+#                filter(file_rank == 1) |> 
+#                select(rowname_del, snapshot_date
+#                       , fs_date, fs_date_string, fs_date_start, fs_date_end, season, season_week)
+#              , by = c('rowname_del','snapshot_date')
+#   ) |> 
+#   relocate(fs_date, fs_date_string, fs_date_start, fs_date_end) |> 
+#   filter(date_time >= fs_date_start & date_time <= fs_date_end)
   
 ## error check to make sure a week is not being duplicated by multiple files
 stopifnot((farmigo_payments_orig_join |> 
@@ -997,8 +1018,6 @@ cell_count_member_history = dim(farmigo_member_history)[1]*dim(farmigo_member_hi
 
 print(paste0('percentage filled to Google Sheets maximum cell count (Member History) ',(cell_count_member_history / 10000000)*100, '%'))
 
-stopifnot(cell_count_member_history <= 10000000)
-
 # boxbuilder
 ## to be built
 
@@ -1007,49 +1026,49 @@ cell_count_memb_del = dim(farmigo_memb_del)[1]*dim(farmigo_memb_del)[2]
 
 print(paste0('percentage filled to Google Sheets maximum cell count (Member Deliveries) ',(cell_count_memb_del / 10000000)*100, '%'))
 
-stopifnot(cell_count_memb_del <= 10000000)
-
-# all items
-cell_count_all_item = dim(farmigo_all_item)[1]*dim(farmigo_all_item)[2]
-
-print(paste0('percentage filled to Google Sheets maximum cell count (All Items) ',(cell_count_all_item / 10000000)*100, '%'))
-
-stopifnot(cell_count_all_item <= 10000000)
-
-# all items - s19 forward
-cell_count_all_item_s19_forward = dim(farmigo_all_item_s19_forward)[1]*dim(farmigo_all_item_s19_forward)[2]
-
-print(paste0('percentage filled to Google Sheets maximum cell count (All Items s19 forward) ',(cell_count_all_item_s19_forward / 10000000)*100, '%'))
-
-stopifnot(cell_count_all_item_s19_forward <= 10000000)
 
 # all subscriptions
 cell_count_all_subscr = dim(farmigo_all_subscr_final)[1]*dim(farmigo_all_subscr_final)[2]
 
 print(paste0('percentage filled to Google Sheets maximum cell count (All Subscriptions) ',(cell_count_all_subscr / 10000000)*100, '%'))
 
-stopifnot(cell_count_all_subscr <= 10000000)
-
 # aggregated delivery date
 cell_count_del_aggr = dim(farmigo_del_aggr_cln_wkly)[1]*dim(farmigo_del_aggr_cln_wkly)[2]
 
 print(paste0('percentage filled to Google Sheets maximum cell count (Delivery Aggregate) ',(cell_count_del_aggr / 10000000)*100, '%'))
-
-stopifnot(cell_count_del_aggr <= 10000000)
 
 # member page
 cell_count_del_member_page = dim(farmigo_member_page_history)[1]*dim(farmigo_member_page_history)[2]
 
 print(paste0('percentage filled to Google Sheets maximum cell count (Member Page) ',(cell_count_del_member_page / 10000000)*100, '%'))
 
-stopifnot(cell_count_del_member_page <= 10000000)
-
 # payments
 cell_count_payments = dim(farmigo_payments)[1]*dim(farmigo_payments)[2]
 
 print(paste0('percentage filled to Google Sheets maximum cell count (Payments) ',(cell_count_payments / 10000000)*100, '%'))
 
-stopifnot(cell_count_payments <= 10000000)
+cell_count_farmigo <- cell_count_member_history + cell_count_memb_del + cell_count_all_subscr + cell_count_del_aggr + cell_count_del_member_page + cell_count_payments
+
+print(paste0('percentage filled to Google Sheets maximum cells (Farmigo Data 1) ',(cell_count_farmigo / 10000000)*100, '%'))
+
+stopifnot(cell_count_farmigo <= 10000000)
+
+
+# all items
+cell_count_all_item = dim(farmigo_all_item)[1]*dim(farmigo_all_item)[2]
+
+print(paste0('percentage filled to Google Sheets maximum cell count (All Items) ',(cell_count_all_item / 10000000)*100, '%'))
+
+# all items - s19 forward
+cell_count_all_item_s19_forward = dim(farmigo_all_item_s19_forward)[1]*dim(farmigo_all_item_s19_forward)[2]
+
+print(paste0('percentage filled to Google Sheets maximum cell count (All Items s19 forward) ',(cell_count_all_item_s19_forward / 10000000)*100, '%'))
+
+cell_count_farmigo_all_item <- cell_count_all_item + cell_count_all_item_s19_forward
+
+print(paste0('percentage filled to Google Sheets maximum cells (Farmigo Data All Item) ',(cell_count_farmigo_all_item / 10000000)*100, '%'))
+
+stopifnot(cell_count_farmigo_all_item <= 10000000)
 
 ```
 
@@ -1061,6 +1080,7 @@ stopifnot(cell_count_payments <= 10000000)
 ```{r}
 sheet_id_farmigo = "1W34-fLMAWPt5VvWb6kiVxWPikgn0Ly2e6JjhQIOmsF4" #original source
 # sheet_id_farmigo = "1c6KxrIaysQPnSsAqWCMxBkKXAWvgiWw57V2VhUdMI5c" #personal
+sheet_id_farmigo_all_item = "16MCzzQ8cEGdHOI0u3dO8Gzr6t1aa0PedvF0lssyoJTI" #original source
 ```
 
 ### Upload
@@ -1073,15 +1093,8 @@ sheet_write(farmigo_member_history, sheet_id_farmigo, sheet = "member_group_hist
 ## to be built
 
 
-
-
 # member deliveries
 sheet_write(farmigo_memb_del, sheet_id_farmigo, sheet = "sales_deliveries")
-
-# all items
-# sheet_write(farmigo_all_item, sheet_id_farmigo, sheet = "all_items")
-# sheet_write(farmigo_all_item_pre_s19, sheet_id_farmigo, sheet = "all_items_pre_s19")
-sheet_write(farmigo_all_item_s19_forward, sheet_id_farmigo, sheet = "all_items_s19_forward")
 
 # all subscriptions
 sheet_write(farmigo_all_subscr_final, sheet_id_farmigo, sheet = "all_subscriptions")
@@ -1094,6 +1107,11 @@ sheet_write(farmigo_member_page_history, sheet_id_farmigo, sheet = "member_page"
 
 # payments
 sheet_write(farmigo_payments, sheet_id_farmigo, sheet = "payments")
+
+# all items
+# sheet_write(farmigo_all_item, sheet_id_farmigo_all_item, sheet = "all_items")
+# sheet_write(farmigo_all_item_pre_s19, sheet_id_farmigo_all_item, sheet = "all_items_pre_s19")
+sheet_write(farmigo_all_item_s19_forward, sheet_id_farmigo_all_item, sheet = "all_items_s19_forward")
 
 ```
 
