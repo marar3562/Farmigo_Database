@@ -69,7 +69,7 @@ sr_wks = sr |>
 
 ### Member Information
 
-```{r}
+```{r include=FALSE}
 file_master_member = list.files(members_folder) |> 
   as_tibble() |> 
   rename(file = value) |>
@@ -119,7 +119,7 @@ farmigo_member_history = farmigo_member_orig |>
 
 This is different from the Member Information above. This includes extra information like Balance amounts.
 
-```{r}
+```{r include=FALSE}
 file_master_member_page = list.files(member_page_folder) |> 
   as_tibble() |> 
   rename(file = value) |>
@@ -352,7 +352,7 @@ stopifnot((farmigo_boxbuilder |>
 
 ### Member Deliveries (aka Sales)
 
-```{r}
+```{r include=FALSE}
 file_master_memb_del = list.files(mem_del_folder) |> 
   as_tibble() |> 
   rename(file = value) |>
@@ -440,7 +440,7 @@ farmigo_memb_del = farmigo_memb_del_orig_join |>
 
 #### Master All Item File (Farmigo)
 
-```{r}
+```{r include=FALSE}
 
 file_master_itm = list.files(items_folder) |> 
   as_tibble() |> 
@@ -494,7 +494,7 @@ head(farmigo_itm_orig)
 
 This logic was created in case we forgot to get a Farmigo copy of the All Item data set. This process is not used anymore. 
 
-```{r}
+```{r include=FALSE}
 file_master_upld = list.files(backup_inv_folder) |> 
   as_tibble() |> 
   rename(file = value) |>
@@ -544,7 +544,7 @@ head(farmigo_upld_orig)
 
 #### All Item / Backup Inventory Upload Combined
 
-```{r}
+```{r include=FALSE}
 file_master_inv = sr_wks |> 
   filter(fs_date <= Sys.Date()) |> # may need to change this date filter in future
   left_join(file_master_itm_fs |> 
@@ -709,7 +709,7 @@ stopifnot((farmigo_all_item_cnt) ==
 
 ### All Subscriptions
 
-```{r}
+```{r include=FALSE}
 file_all_subscr = list.files(subscriptions_folder) |> 
   as_tibble() |> 
   rename(file = value) |>
@@ -761,7 +761,7 @@ farmigo_all_subscr_final = farmigo_all_subscr_orig |>
 
 ### Aggregated Delivery Data
 
-```{r}
+```{r include=FALSE}
 file_master_del_aggr = list.files(aggr_del_folder) |> 
   as_tibble() |> 
   rename(file = value) |>
@@ -884,7 +884,7 @@ head(farmigo_del_aggr_cln_wkly |> arrange(item_unit, date))
 
 ### Payments
 
-```{r}
+```{r include=FALSE}
 file_master_payments = list.files(payments_folder) |> 
   as_tibble() |> 
   rename(file = value) |>
