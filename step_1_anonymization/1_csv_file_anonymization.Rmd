@@ -196,7 +196,8 @@ payments_anon_check_init = payments_raw |>
 all_members_anon_check = members_anon_check_init |> 
   rbind(deliveries_anon_check_init) |> 
   rbind(member_page_anon_check_init) |>
-  rbind(payments_anon_check_init)
+  rbind(payments_anon_check_init) |> 
+  distinct()
   
 # checking to make sure no duplicate member information
 stopifnot((all_members_anon_check |> 
